@@ -3,7 +3,9 @@ const SouceLocation = @import("SourceLocation.zig");
 const types = @import("types.zig");
 
 pub const Token = struct {
-    const Data = union(enum) {
+    pub const Data = union(enum) {
+        pub const Tag = @typeInfo(@This()).@"union".tag_type.?;
+
         err: []const u8,
         eof,
         int: types.Int,
@@ -13,18 +15,26 @@ pub const Token = struct {
         mul,
         div,
         whitespace,
+
+        pub fn isLiteral(tag: Tag) bool {
+            return switch (tag) {
+                .int => true,
+                .float => true,
+                else => false,
+            };
+        }
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+            switch (this) {
+                .err => |err| try writer.print("err '{s}' ", .{err}),
+                .int => |int| try writer.print("int({})", .{int}),
+                else => try writer.print("{s} ", .{@tagName(this)}),
+            }
+        }
     };
 
     loc: SouceLocation,
     data: Data,
-
-    pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-        switch (this.data) {
-            .err => |err| try writer.print("err '{s}' ", .{err}),
-            .int => |int| try writer.print("int {} ", .{int}),
-            else => try writer.print("{s} ", .{@tagName(this.data)}),
-        }
-    }
 };
 
 src: []const u8,
@@ -46,7 +56,9 @@ pub fn deinit(this: *@This()) void {
 }
 
 pub fn nextToken(this: *@This()) Token {
-    if (this.index >= this.src.len) return .{
+    const maybe_c = this.peekChar(0);
+
+    if (maybe_c == null) return .{
         .loc = .{
             .line = this.line,
             .col = this.col,
@@ -55,15 +67,15 @@ pub fn nextToken(this: *@This()) Token {
         .data = .eof,
     };
 
-    const c = this.src[this.index];
+    const c = maybe_c.?;
     if (std.ascii.isDigit(c)) return this.parseNum();
     if (std.ascii.isWhitespace(c)) {
         const start_index = this.index;
         const start_line = this.line;
         const start_col = this.col;
 
-        while (std.ascii.isWhitespace(this.src[this.index])) {
-            if (this.src[this.index] == '\n') {
+        while (this.peekChar(0) != null and std.ascii.isWhitespace(this.peekChar(0).?)) {
+            if (this.peekChar(0).? == '\n') {
                 this.index += 1;
                 this.line += 1;
                 this.col = 0;
@@ -124,7 +136,9 @@ pub fn parseNum(this: *@This()) Token {
     const start_col = this.col;
 
     while (true) {
-        if (this.index >= this.src.len or !std.ascii.isDigit(this.src[this.index])) {
+        const maybe_c = this.peekChar(0);
+
+        if (maybe_c == null or !std.ascii.isDigit(maybe_c.?)) {
             const len: u32 = @intCast(this.index - start_index);
             const loc: SouceLocation = .{
                 .line = start_line,
@@ -156,4 +170,21 @@ pub fn parseNum(this: *@This()) Token {
 pub fn advance(this: *@This()) void {
     this.index += 1;
     this.col += 1;
+}
+
+pub fn peekChar(this: *@This(), offset: usize) ?u8 {
+    if (this.index + offset >= this.src.len) return null;
+    return this.src[this.index];
+}
+
+pub fn nextTokenNoWS(this: *@This()) Token {
+    while (true) {
+        const token = this.nextToken();
+        if (token.data != .whitespace) return token;
+    }
+}
+
+pub fn peekTokenNoWS(this: *@This()) Token {
+    var copy = this.*;
+    return copy.nextTokenNoWS();
 }
