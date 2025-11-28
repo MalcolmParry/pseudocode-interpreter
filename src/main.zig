@@ -5,7 +5,7 @@ const types = @import("types.zig");
 
 pub fn main() !void {
     const alloc = std.heap.smp_allocator;
-    const src = "-(2 - -3) / 2";
+    const src = "2 - 3 * 2 - 5";
 
     var lexer = Lexer.init(src);
     defer lexer.deinit();

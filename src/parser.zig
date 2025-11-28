@@ -47,45 +47,36 @@ pub const Expression = struct {
 };
 
 pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
-    const left = try parseUnaryOp(lexer, alloc);
+    var left = try parseUnaryOp(lexer, alloc);
     errdefer alloc.destroy(left);
     if (left.data == .err) return left;
 
-    const op_tok = lexer.peekTokenNoWS();
-    const op: BinaryOp.Op = switch (op_tok.data) {
-        .add => .add,
-        .sub => .sub,
-        .mul => .mul,
-        .div => .div,
-        else => return left,
-    };
-    _ = lexer.nextTokenNoWS();
+    while (true) {
+        const op_tok = lexer.peekTokenNoWS();
+        const op: BinaryOp.Op = switch (op_tok.data) {
+            .add => .add,
+            .sub => .sub,
+            .mul => .mul,
+            .div => .div,
+            else => return left,
+        };
+        _ = lexer.nextTokenNoWS();
 
-    const right = try parseExpression(lexer, alloc);
-    errdefer alloc.destroy(right);
-    if (right.data == .err) return right;
+        const right = try parseUnaryOp(lexer, alloc);
+        errdefer alloc.destroy(right);
+        if (right.data == .err) return right;
 
-    const result = try alloc.create(Expression);
-    errdefer alloc.destroy(result);
-
-    const loc: SourceLocation = .{
-        .line = left.loc.line,
-        .col = left.loc.col,
-        .len = left.loc.len, // TODO: do whole thing
-    };
-
-    result.* = .{
-        .loc = loc,
-        .data = .{
-            .bin = .{
+        const new = try alloc.create(Expression);
+        new.* = .{
+            .loc = left.loc,
+            .data = .{ .bin = .{
                 .left = left,
                 .right = right,
                 .op = op,
-            },
-        },
-    };
-
-    return result;
+            } },
+        };
+        left = new;
+    }
 }
 
 pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
