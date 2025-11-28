@@ -1,1 +1,1 @@
-pub const Int = u64;
+pub const Int = i64;

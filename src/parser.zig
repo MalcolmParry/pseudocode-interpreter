@@ -28,7 +28,7 @@ pub const BinaryOp = struct {
 pub const Expression = struct {
     pub const Data = union(enum) {
         lit: Lexer.Token.Data,
-        neg: Lexer.Token.Data,
+        neg: *Expression,
         bin: BinaryOp,
         err: []const u8,
     };
@@ -47,9 +47,8 @@ pub const Expression = struct {
 };
 
 pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
-    const left = try alloc.create(Expression);
+    const left = try parseUnaryOp(lexer, alloc);
     errdefer alloc.destroy(left);
-    left.* = parseUnaryOp(lexer);
     if (left.data == .err) return left;
 
     const op_tok = lexer.peekTokenNoWS();
@@ -68,12 +67,15 @@ pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemor
 
     const result = try alloc.create(Expression);
     errdefer alloc.destroy(result);
+
+    const loc: SourceLocation = .{
+        .line = left.loc.line,
+        .col = left.loc.col,
+        .len = left.loc.len, // TODO: do whole thing
+    };
+
     result.* = .{
-        .loc = .{
-            .line = left.loc.line,
-            .col = left.loc.col,
-            .len = left.loc.len, // TODO: do whole thing
-        },
+        .loc = loc,
         .data = .{
             .bin = .{
                 .left = left,
@@ -86,35 +88,65 @@ pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemor
     return result;
 }
 
-pub fn parseUnaryOp(lexer: *Lexer) Expression {
-    var token = lexer.nextTokenNoWS();
-    var minus: bool = false;
-    if (token.data == .sub) {
-        minus = true;
-        token = lexer.nextTokenNoWS();
-    }
+pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
+    const token = lexer.nextTokenNoWS();
 
-    if (!Lexer.Token.Data.isLiteral(token.data)) {
-        if (token.data == .err) return .{
-            .loc = token.loc,
-            .data = .{ .err = token.data.err },
-        };
-    }
+    const data: Expression.Data = switch (token.data) {
+        .sub => {
+            const expression = try parseUnaryOp(lexer, alloc);
+            if (expression.data == .err) return expression;
 
-    const data: Expression.Data = blk: switch (token.data) {
-        .int, .float => {
-            if (minus)
-                break :blk .{ .neg = token.data };
+            const result = try alloc.create(Expression);
+            result.* = .{
+                .loc = .{
+                    .line = token.loc.line,
+                    .col = token.loc.col,
+                    .len = expression.loc.len + token.loc.len,
+                },
+                .data = .{ .neg = expression },
+            };
 
-            break :blk .{ .lit = token.data };
+            return result;
         },
+        .lparen => {
+            const expression = try parseExpression(lexer, alloc);
+            if (expression.data == .err) return expression;
+            const rparen = lexer.nextTokenNoWS();
+
+            if (rparen.data != .rparen) {
+                const result = try alloc.create(Expression);
+                result.* = .{
+                    .loc = rparen.loc,
+                    .data = .{
+                        .err = "expected )",
+                    },
+                };
+
+                return result;
+            }
+
+            return expression;
+        },
+        .err => |err| {
+            const result = try alloc.create(Expression);
+            result.* = .{
+                .loc = token.loc,
+                .data = .{ .err = err },
+            };
+
+            return result;
+        },
+        .int, .float => .{ .lit = token.data },
         else => .{
             .err = "unexpected token",
         },
     };
 
-    return .{
+    const result = try alloc.create(Expression);
+    result.* = .{
         .loc = token.loc,
         .data = data,
     };
+
+    return result;
 }

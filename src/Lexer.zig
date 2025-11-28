@@ -14,6 +14,8 @@ pub const Token = struct {
         sub,
         mul,
         div,
+        lparen,
+        rparen,
         whitespace,
 
         pub fn isLiteral(tag: Tag) bool {
@@ -27,7 +29,7 @@ pub const Token = struct {
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this) {
                 .err => |err| try writer.print("err '{s}' ", .{err}),
-                .int => |int| try writer.print("int({})", .{int}),
+                .int => |int| try writer.print("{}i", .{int}),
                 else => try writer.print("{s} ", .{@tagName(this)}),
             }
         }
@@ -116,6 +118,14 @@ pub fn nextToken(this: *@This()) Token {
         '/' => .{
             .loc = single_loc,
             .data = .div,
+        },
+        '(' => .{
+            .loc = single_loc,
+            .data = .lparen,
+        },
+        ')' => .{
+            .loc = single_loc,
+            .data = .rparen,
         },
         else => .{
             .loc = single_loc,
