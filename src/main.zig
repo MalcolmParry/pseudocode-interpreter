@@ -17,7 +17,7 @@ pub fn main() !void {
     //     if (token.data == .eof) break;
     // }
 
-    const expression = try parser.parseExpression(&lexer, alloc);
+    const expression = try parser.parseExpression(&lexer, 0, alloc);
     std.log.info("{f}", .{expression});
 
     if (expression.data != .err) {

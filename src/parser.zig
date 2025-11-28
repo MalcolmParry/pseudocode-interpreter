@@ -3,6 +3,17 @@ const Lexer = @import("Lexer.zig");
 const SourceLocation = @import("SourceLocation.zig");
 const types = @import("types.zig");
 
+const order_of_operation: [2][]const BinaryOp.Op = .{
+    &.{
+        .add,
+        .sub,
+    },
+    &.{
+        .mul,
+        .div,
+    },
+};
+
 pub const BinaryOp = struct {
     pub const Op = enum {
         add,
@@ -17,6 +28,10 @@ pub const BinaryOp = struct {
                 .mul => '*',
                 .div => '/',
             };
+        }
+
+        pub fn canUse(this: @This(), order: usize) bool {
+            return std.mem.indexOfScalar(BinaryOp.Op, order_of_operation[order], this) != null;
         }
     };
 
@@ -46,8 +61,11 @@ pub const Expression = struct {
     }
 };
 
-pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
-    var left = try parseUnaryOp(lexer, alloc);
+pub fn parseExpression(lexer: *Lexer, order: usize, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
+    if (order >= order_of_operation.len)
+        return parseUnaryOp(lexer, alloc);
+
+    var left = try parseExpression(lexer, order + 1, alloc);
     errdefer alloc.destroy(left);
     if (left.data == .err) return left;
 
@@ -60,9 +78,10 @@ pub fn parseExpression(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemor
             .div => .div,
             else => return left,
         };
+        if (!op.canUse(order)) return left;
         _ = lexer.nextTokenNoWS();
 
-        const right = try parseUnaryOp(lexer, alloc);
+        const right = try parseExpression(lexer, order + 1, alloc);
         errdefer alloc.destroy(right);
         if (right.data == .err) return right;
 
@@ -100,7 +119,7 @@ pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!
             return result;
         },
         .lparen => {
-            const expression = try parseExpression(lexer, alloc);
+            const expression = try parseExpression(lexer, 0, alloc);
             if (expression.data == .err) return expression;
             const rparen = lexer.nextTokenNoWS();
 
