@@ -96,47 +96,27 @@ pub fn nextToken(this: *@This()) Token {
         };
     }
 
-    const single_loc: SouceLocation = .{
-        .line = this.line,
-        .col = this.col,
-        .len = 1,
-    };
-
-    const token: Token = switch (c) {
-        '+' => .{
-            .loc = single_loc,
-            .data = .add,
-        },
-        '-' => .{
-            .loc = single_loc,
-            .data = .sub,
-        },
-        '*' => .{
-            .loc = single_loc,
-            .data = .mul,
-        },
-        '/' => .{
-            .loc = single_loc,
-            .data = .div,
-        },
-        '(' => .{
-            .loc = single_loc,
-            .data = .lparen,
-        },
-        ')' => .{
-            .loc = single_loc,
-            .data = .rparen,
-        },
+    const token: Token.Data = switch (c) {
+        '+' => .add,
+        '-' => .sub,
+        '*' => .mul,
+        '/' => .div,
+        '(' => .lparen,
+        ')' => .rparen,
         else => .{
-            .loc = single_loc,
-            .data = .{
-                .err = "unrecognised symbol",
-            },
+            .err = "unrecognised symbol",
         },
     };
 
     this.advance();
-    return token;
+    return .{
+        .loc = .{
+            .line = this.line,
+            .col = this.col,
+            .len = 1,
+        },
+        .data = token,
+    };
 }
 
 // TODO: allow for flaots too
@@ -157,7 +137,7 @@ pub fn parseNum(this: *@This()) Token {
             };
             const data: Token.Data = .{
                 .int = std.fmt.parseInt(types.Int, this.src[start_index .. start_index + len], 0) catch |err| {
-                    const message_nt: [*:0]const u8 = @ptrCast(@errorName(err));
+                    const message_nt: [*:0]const u8 = @errorName(err);
                     const message = message_nt[0..std.mem.len(message_nt)];
 
                     return .{
