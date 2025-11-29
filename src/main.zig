@@ -5,27 +5,30 @@ const types = @import("types.zig");
 
 pub fn main() !void {
     const alloc = std.heap.smp_allocator;
-    const src = "2 - 3 * 2 - 5";
+    const src =
+        // \\x <- 2 - 3
+        \\2 + 3 * 4
+    ;
 
     var lexer = Lexer.init(src);
     defer lexer.deinit();
 
-    // _ = alloc;
-    // while (true) {
-    //     const token = lexer.nextTokenNoWS();
-    //     std.log.info("{f}", .{token.data});
-    //     if (token.data == .eof) break;
-    // }
-
-    const expression = try parser.parseExpression(&lexer, 0, alloc);
-    std.log.info("{f}", .{expression});
-
-    if (expression.data != .err) {
-        std.log.info("{}", .{eval(expression)});
+    _ = alloc;
+    while (true) {
+        const token = lexer.nextToken();
+        std.log.info("{f}", .{token.data});
+        if (token.data == .eof) break;
     }
+
+    // const expression = try parser.parseExpression(&lexer, 0, alloc);
+    // std.log.info("{f}", .{expression});
+    //
+    // if (expression.data != .err) {
+    //     std.log.info("{}", .{eval(expression)});
+    // }
 }
 
-fn eval(expression: *parser.Expression) i64 {
+fn eval(expression: *parser.Expression) types.Int {
     return switch (expression.data) {
         .lit => |lit| lit.int,
         .neg => |neg| -eval(neg),
