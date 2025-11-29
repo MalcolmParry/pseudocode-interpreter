@@ -13,19 +13,19 @@ pub fn main() !void {
     var lexer = Lexer.init(src);
     defer lexer.deinit();
 
-    _ = alloc;
-    while (true) {
-        const token = lexer.nextToken();
-        std.log.info("{f}", .{token.data});
-        if (token.data == .eof) break;
-    }
-
-    // const expression = try parser.parseExpression(&lexer, 0, alloc);
-    // std.log.info("{f}", .{expression});
-    //
-    // if (expression.data != .err) {
-    //     std.log.info("{}", .{eval(expression)});
+    // _ = alloc;
+    // while (true) {
+    //     const token = lexer.nextToken();
+    //     std.log.info("{f}", .{token.data});
+    //     if (token.data == .eof) break;
     // }
+
+    const expression = try parser.parseExpression(&lexer, 0, alloc);
+    std.log.info("{f}", .{expression});
+
+    if (expression.data != .err) {
+        std.log.info("{}", .{eval(expression)});
+    }
 }
 
 fn eval(expression: *parser.Expression) types.Int {

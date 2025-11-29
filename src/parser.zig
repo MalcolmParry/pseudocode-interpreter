@@ -1,6 +1,5 @@
 const std = @import("std");
 const Lexer = @import("Lexer.zig");
-const SourceLocation = @import("SourceLocation.zig");
 const types = @import("types.zig");
 
 const order_of_operation: [2][]const BinaryOp.Op = .{
@@ -48,7 +47,7 @@ pub const Expression = struct {
         err: []const u8,
     };
 
-    loc: SourceLocation,
+    start: u32,
     data: Data,
 
     pub fn format(this: *@This(), writer: *std.Io.Writer) !void {
@@ -70,7 +69,7 @@ pub fn parseExpression(lexer: *Lexer, order: usize, alloc: std.mem.Allocator) er
     if (left.data == .err) return left;
 
     while (true) {
-        const op_tok = lexer.peekTokenNoWS();
+        const op_tok = lexer.peekToken();
         const op: BinaryOp.Op = switch (op_tok.data) {
             .add => .add,
             .sub => .sub,
@@ -79,7 +78,7 @@ pub fn parseExpression(lexer: *Lexer, order: usize, alloc: std.mem.Allocator) er
             else => return left,
         };
         if (!op.canUse(order)) return left;
-        _ = lexer.nextTokenNoWS();
+        _ = lexer.nextToken();
 
         const right = try parseExpression(lexer, order + 1, alloc);
         errdefer alloc.destroy(right);
@@ -87,7 +86,7 @@ pub fn parseExpression(lexer: *Lexer, order: usize, alloc: std.mem.Allocator) er
 
         const new = try alloc.create(Expression);
         new.* = .{
-            .loc = left.loc,
+            .start = left.start,
             .data = .{ .bin = .{
                 .left = left,
                 .right = right,
@@ -99,7 +98,7 @@ pub fn parseExpression(lexer: *Lexer, order: usize, alloc: std.mem.Allocator) er
 }
 
 pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!*Expression {
-    const token = lexer.nextTokenNoWS();
+    const token = lexer.nextToken();
 
     const data: Expression.Data = switch (token.data) {
         .sub => {
@@ -108,11 +107,7 @@ pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!
 
             const result = try alloc.create(Expression);
             result.* = .{
-                .loc = .{
-                    .line = token.loc.line,
-                    .col = token.loc.col,
-                    .len = expression.loc.len + token.loc.len,
-                },
+                .start = token.start,
                 .data = .{ .neg = expression },
             };
 
@@ -121,12 +116,13 @@ pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!
         .lparen => {
             const expression = try parseExpression(lexer, 0, alloc);
             if (expression.data == .err) return expression;
-            const rparen = lexer.nextTokenNoWS();
+            expression.start = token.start;
+            const rparen = lexer.nextToken();
 
             if (rparen.data != .rparen) {
                 const result = try alloc.create(Expression);
                 result.* = .{
-                    .loc = rparen.loc,
+                    .start = rparen.start,
                     .data = .{
                         .err = "expected )",
                     },
@@ -140,7 +136,7 @@ pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!
         .err => |err| {
             const result = try alloc.create(Expression);
             result.* = .{
-                .loc = token.loc,
+                .start = token.start,
                 .data = .{ .err = err },
             };
 
@@ -154,7 +150,7 @@ pub fn parseUnaryOp(lexer: *Lexer, alloc: std.mem.Allocator) error{OutOfMemory}!
 
     const result = try alloc.create(Expression);
     result.* = .{
-        .loc = token.loc,
+        .start = token.start,
         .data = data,
     };
 

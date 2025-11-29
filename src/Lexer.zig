@@ -1,5 +1,4 @@
 const std = @import("std");
-const SouceLocation = @import("SourceLocation.zig");
 const types = @import("types.zig");
 
 pub const Token = struct {
