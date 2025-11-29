@@ -3,20 +3,20 @@ const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const types = @import("types.zig");
 
-pub fn main() !void {
-    const src =
-        // \\x <- 2 - 3
-        \\2 + 3 * 4
-    ;
+const src: []const u8 = @embedFile("example.pseudo");
 
+pub fn main() !void {
     var lexer = Lexer.init(src);
     defer lexer.deinit();
 
-    // while (true) {
-    //     const token = lexer.nextToken();
-    //     std.log.info("{f}", .{token.data});
-    //     if (token.data == .eof) break;
-    // }
+    while (true) {
+        const token = lexer.nextToken();
+        std.log.info("{f}", .{token.data});
+        if (token.data == .eof) break;
+    }
+
+    lexer.index = 0;
+    std.log.info("", .{});
 
     const alloc = std.heap.smp_allocator;
     var parser: Parser = .{

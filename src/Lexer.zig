@@ -7,6 +7,7 @@ pub const Token = struct {
 
         err: []const u8,
         eof,
+        ident: []const u8,
         int: types.Int,
         float,
         add,
@@ -31,6 +32,7 @@ pub const Token = struct {
             switch (this) {
                 .err => |err| try writer.print("err '{s}' ", .{err}),
                 .int => |int| try writer.print("{}", .{int}),
+                .ident => |ident| try writer.print("ident: '{s}'", .{ident}),
                 else => try writer.print("{s} ", .{@tagName(this)}),
             }
         }
@@ -58,6 +60,17 @@ pub fn nextToken(this: *@This()) Token {
     while (this.peekChar(0) != null and std.ascii.isWhitespace(this.peekChar(0).?))
         this.index += 1;
 
+    if (this.peekChar(0) == '/' and this.peekChar(1) == '/') {
+        this.index += 2;
+
+        while (this.peekChar(0) != '\n' and this.peekChar(0) != null) {
+            this.index += 1;
+        }
+
+        this.index += 1;
+        return this.nextToken();
+    }
+
     const maybe_c = this.peekChar(0);
     const start = this.index;
     if (maybe_c == null) return .{
@@ -67,6 +80,7 @@ pub fn nextToken(this: *@This()) Token {
 
     const c = maybe_c.?;
     if (std.ascii.isDigit(c)) return this.parseNum();
+    if (std.ascii.isAlphabetic(c) or c == '_') return this.parseIdentifier();
 
     const token: Token.Data = switch (c) {
         '+' => .add,
@@ -114,6 +128,26 @@ pub fn parseNum(this: *@This()) Token {
                             .data = .{ .err = message },
                         };
                     },
+                },
+            };
+        }
+
+        this.index += 1;
+    }
+}
+
+pub fn parseIdentifier(this: *@This()) Token {
+    const start = this.index;
+
+    while (true) {
+        const maybe_c = this.peekChar(0);
+        const valid = maybe_c != null and (std.ascii.isAlphanumeric(maybe_c.?) or maybe_c.? == '_');
+
+        if (!valid) {
+            return .{
+                .start = start,
+                .data = .{
+                    .ident = this.src[start..this.index],
                 },
             };
         }
