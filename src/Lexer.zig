@@ -52,29 +52,14 @@ pub fn init(src: []const u8) @This() {
     };
 }
 
-pub fn deinit(this: *@This()) void {
-    _ = this;
-}
-
 pub fn nextToken(this: *@This()) Token {
     while (this.peekChar(0) != null and std.ascii.isWhitespace(this.peekChar(0).?))
         this.index += 1;
 
-    if (this.peekChar(0) == '/' and this.peekChar(1) == '/') {
-        this.index += 2;
-
-        while (this.peekChar(0) != '\n' and this.peekChar(0) != null) {
-            this.index += 1;
-        }
-
-        this.index += 1;
-        return this.nextToken();
-    }
-
     const maybe_c = this.peekChar(0);
     const start = this.index;
     if (maybe_c == null) return .{
-        .start = this.index,
+        .start = @intCast(this.src.len - 1),
         .data = .eof,
     };
 
@@ -86,7 +71,16 @@ pub fn nextToken(this: *@This()) Token {
         '+' => .add,
         '-' => .sub,
         '*' => .mul,
-        '/' => .div,
+        '/' => if (this.peekChar(1) == '/') {
+            this.index += 2;
+
+            while (this.peekChar(0) != '\n' and this.peekChar(0) != null) {
+                this.index += 1;
+            }
+
+            this.index += 1;
+            return this.nextToken();
+        } else .div,
         '(' => .lparen,
         ')' => .rparen,
         '<' => if (this.peekChar(1) == '-') blk: {

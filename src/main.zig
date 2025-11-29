@@ -7,7 +7,6 @@ const src: []const u8 = @embedFile("example.pseudo");
 
 pub fn main() !void {
     var lexer = Lexer.init(src);
-    defer lexer.deinit();
 
     while (true) {
         const token = lexer.nextToken();
@@ -24,12 +23,15 @@ pub fn main() !void {
         .lexer = &lexer,
     };
 
-    const expression = try parser.parseExpression(0);
-    std.log.info("{f}", .{Parser.Expression.Formatter{ .parser = &parser, .expression = expression.value(&parser) }});
+    const statement = try parser.parseStatement();
+    std.log.info("{f}", .{Parser.Statement.Formatter{ .parser = &parser, .this = statement }});
 
-    if (expression.value(&parser).data != .err) {
-        std.log.info("{}", .{eval(&parser, expression)});
-    }
+    // const expression = try parser.parseExpression(0);
+    // std.log.info("{f}", .{Parser.Expression.Formatter{ .parser = &parser, .this = expression }});
+    //
+    // if (expression.value(&parser).data != .err) {
+    //     std.log.info("{}", .{eval(&parser, expression)});
+    // }
 }
 
 fn eval(parser: *Parser, expression: Parser.Expression.Handle) types.Int {

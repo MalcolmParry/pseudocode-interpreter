@@ -6,7 +6,67 @@ const Parser = @This();
 
 lexer: *Lexer,
 expressions: std.ArrayList(Expression) = .{},
+statements: std.ArrayList(Statement) = .{},
 alloc: std.mem.Allocator,
+
+pub fn parseStatement(this: *@This()) !Statement.Handle {
+    const token = this.lexer.nextToken();
+
+    switch (token.data) {
+        .ident => |ident| {
+            const token2 = this.lexer.peekToken();
+
+            switch (token2.data) {
+                .assign => {
+                    _ = this.lexer.nextToken();
+                    const expression = try this.parseExpression(0);
+                    if (expression.value(this).data == .err) {
+                        return this.newStatement(.{
+                            .start = expression.value(this).start,
+                            .data = .{
+                                .err = expression.value(this).data.err,
+                            },
+                        });
+                    }
+
+                    return this.newStatement(.{
+                        .start = token.start,
+                        .data = .{
+                            .assign = .{
+                                .ident = ident,
+                                .value = expression,
+                            },
+                        },
+                    });
+                },
+                else => {
+                    return this.newStatement(.{
+                        .start = token.start,
+                        .data = .{
+                            .err = "unexpected token",
+                        },
+                    });
+                },
+            }
+        },
+        .err => |err| {
+            return this.newStatement(.{
+                .start = token.start,
+                .data = .{
+                    .err = err,
+                },
+            });
+        },
+        else => {
+            return this.newStatement(.{
+                .start = token.start,
+                .data = .{
+                    .err = "unexpected token",
+                },
+            });
+        },
+    }
+}
 
 pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!Expression.Handle {
     if (order >= order_of_operation.len)
@@ -94,6 +154,11 @@ pub fn newExpression(this: *@This(), new: Expression) !Expression.Handle {
     return @enumFromInt(this.expressions.items.len - 1);
 }
 
+pub fn newStatement(this: *@This(), new: Statement) !Statement.Handle {
+    try this.statements.append(this.alloc, new);
+    return @enumFromInt(this.statements.items.len - 1);
+}
+
 const order_of_operation: [2][]const BinaryOp.Op = .{
     &.{
         .add,
@@ -132,13 +197,8 @@ pub const BinaryOp = struct {
 };
 
 pub const Expression = struct {
-    pub const Handle = enum(u32) {
-        _,
-
-        pub fn value(handle: @This(), parser: *Parser) *Expression {
-            return &parser.expressions.items[@intFromEnum(handle)];
-        }
-    };
+    start: u32,
+    data: Data,
 
     pub const Data = union(enum) {
         lit: Lexer.Token.Data,
@@ -147,24 +207,64 @@ pub const Expression = struct {
         err: []const u8,
     };
 
-    start: u32,
-    data: Data,
-
     pub const Formatter = struct {
         parser: *Parser,
-        expression: *Expression,
+        this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            switch (this.expression.data) {
+            switch (this.this.value(this.parser).data) {
                 .lit => |lit| try writer.print("{f}", .{lit}),
-                .neg => |neg| try writer.print("-{f}", .{Formatter{ .parser = this.parser, .expression = neg.value(this.parser) }}),
+                .neg => |neg| try writer.print("-{f}", .{Formatter{ .parser = this.parser, .this = neg }}),
                 .bin => |bin| try writer.print("({f} {c} {f})", .{
-                    Formatter{ .parser = this.parser, .expression = bin.left.value(this.parser) },
+                    Formatter{ .parser = this.parser, .this = bin.left },
                     bin.op.getChar(),
-                    Formatter{ .parser = this.parser, .expression = bin.right.value(this.parser) },
+                    Formatter{ .parser = this.parser, .this = bin.right },
                 }),
                 .err => |err| try writer.print("parser error: {s}", .{err}),
             }
+        }
+    };
+
+    pub const Handle = enum(u32) {
+        _,
+
+        pub fn value(handle: @This(), parser: *Parser) *Expression {
+            return &parser.expressions.items[@intFromEnum(handle)];
+        }
+    };
+};
+
+pub const Statement = struct {
+    start: u32,
+    data: Data,
+
+    pub const Data = union(enum) {
+        assign: Assign,
+        err: []const u8,
+    };
+
+    pub const Assign = struct {
+        ident: []const u8,
+        value: Expression.Handle,
+    };
+
+    pub const Formatter = struct {
+        parser: *Parser,
+        this: Handle,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+            switch (this.this.value(this.parser).data) {
+                .assign => |assign| try writer.print("set '{s}' to {f}", .{ assign.ident, Expression.Formatter{ .parser = this.parser, .this = assign.value } }),
+                .err => |err| try writer.print("parser error: {s}", .{err}),
+            }
+        }
+    };
+
+    pub const Handle = enum(u32) {
+        _,
+
+        pub fn value(handle: @This(), parser: *Parser) *Statement {
+            return &parser.statements.items[@intFromEnum(handle)];
         }
     };
 };
