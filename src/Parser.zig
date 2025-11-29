@@ -2,17 +2,18 @@ const std = @import("std");
 const Lexer = @import("Lexer.zig");
 const types = @import("types.zig");
 
+const Parser = @This();
+
 lexer: *Lexer,
-// expressions: std.ArrayList(Expression),
+expressions: std.ArrayList(Expression) = .{},
 alloc: std.mem.Allocator,
 
-pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!*Expression {
+pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!Expression.Handle {
     if (order >= order_of_operation.len)
         return this.parseUnaryOp();
 
     var left = try this.parseExpression(order + 1);
-    errdefer this.alloc.destroy(left);
-    if (left.data == .err) return left;
+    if (left.value(this).data == .err) return left;
 
     while (true) {
         const op_tok = this.lexer.peekToken();
@@ -27,66 +28,54 @@ pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!*Express
         _ = this.lexer.nextToken();
 
         const right = try this.parseExpression(order + 1);
-        errdefer this.alloc.destroy(right);
-        if (right.data == .err) return right;
+        if (right.value(this).data == .err) return right;
 
-        const new = try this.alloc.create(Expression);
-        new.* = .{
-            .start = left.start,
+        left = try this.newExpression(.{
+            .start = left.value(this).start,
             .data = .{ .bin = .{
                 .left = left,
                 .right = right,
                 .op = op,
             } },
-        };
-        left = new;
+        });
     }
 }
 
-pub fn parseUnaryOp(this: *@This()) error{OutOfMemory}!*Expression {
+pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
     const token = this.lexer.nextToken();
 
     const data: Expression.Data = switch (token.data) {
         .sub => {
             const expression = try this.parseUnaryOp();
-            if (expression.data == .err) return expression;
+            if (expression.value(this).data == .err) return expression;
 
-            const result = try this.alloc.create(Expression);
-            result.* = .{
+            return this.newExpression(.{
                 .start = token.start,
                 .data = .{ .neg = expression },
-            };
-
-            return result;
+            });
         },
         .lparen => {
             const expression = try this.parseExpression(0);
-            if (expression.data == .err) return expression;
-            expression.start = token.start;
+            if (expression.value(this).data == .err) return expression;
+            expression.value(this).start = token.start;
             const rparen = this.lexer.nextToken();
 
             if (rparen.data != .rparen) {
-                const result = try this.alloc.create(Expression);
-                result.* = .{
+                return this.newExpression(.{
                     .start = rparen.start,
                     .data = .{
                         .err = "expected )",
                     },
-                };
-
-                return result;
+                });
             }
 
             return expression;
         },
         .err => |err| {
-            const result = try this.alloc.create(Expression);
-            result.* = .{
+            return this.newExpression(.{
                 .start = token.start,
                 .data = .{ .err = err },
-            };
-
-            return result;
+            });
         },
         .int, .float => .{ .lit = token.data },
         else => .{
@@ -94,13 +83,15 @@ pub fn parseUnaryOp(this: *@This()) error{OutOfMemory}!*Expression {
         },
     };
 
-    const result = try this.alloc.create(Expression);
-    result.* = .{
+    return this.newExpression(.{
         .start = token.start,
         .data = data,
-    };
+    });
+}
 
-    return result;
+pub fn newExpression(this: *@This(), new: Expression) !Expression.Handle {
+    try this.expressions.append(this.alloc, new);
+    return @enumFromInt(this.expressions.items.len - 1);
 }
 
 const order_of_operation: [2][]const BinaryOp.Op = .{
@@ -135,16 +126,23 @@ pub const BinaryOp = struct {
         }
     };
 
-    left: *Expression,
-    right: *Expression,
+    left: Expression.Handle,
+    right: Expression.Handle,
     op: Op,
 };
 
 pub const Expression = struct {
-    pub const Handle = enum(u32) { _ };
+    pub const Handle = enum(u32) {
+        _,
+
+        pub fn value(handle: @This(), parser: *Parser) *Expression {
+            return &parser.expressions.items[@intFromEnum(handle)];
+        }
+    };
+
     pub const Data = union(enum) {
         lit: Lexer.Token.Data,
-        neg: *Expression,
+        neg: Expression.Handle,
         bin: BinaryOp,
         err: []const u8,
     };
@@ -152,12 +150,21 @@ pub const Expression = struct {
     start: u32,
     data: Data,
 
-    pub fn format(this: *@This(), writer: *std.Io.Writer) !void {
-        switch (this.data) {
-            .lit => |lit| try writer.print("{f}", .{lit}),
-            .neg => |neg| try writer.print("-{f}", .{neg}),
-            .bin => |bin| try writer.print("({f} {c} {f})", .{ bin.left, bin.op.getChar(), bin.right }),
-            .err => |err| try writer.print("parser error: {s}", .{err}),
+    pub const Formatter = struct {
+        parser: *Parser,
+        expression: *Expression,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+            switch (this.expression.data) {
+                .lit => |lit| try writer.print("{f}", .{lit}),
+                .neg => |neg| try writer.print("-{f}", .{Formatter{ .parser = this.parser, .expression = neg.value(this.parser) }}),
+                .bin => |bin| try writer.print("({f} {c} {f})", .{
+                    Formatter{ .parser = this.parser, .expression = bin.left.value(this.parser) },
+                    bin.op.getChar(),
+                    Formatter{ .parser = this.parser, .expression = bin.right.value(this.parser) },
+                }),
+                .err => |err| try writer.print("parser error: {s}", .{err}),
+            }
         }
-    }
+    };
 };

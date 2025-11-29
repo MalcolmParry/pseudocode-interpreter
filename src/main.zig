@@ -25,20 +25,20 @@ pub fn main() !void {
     };
 
     const expression = try parser.parseExpression(0);
-    std.log.info("{f}", .{expression});
+    std.log.info("{f}", .{Parser.Expression.Formatter{ .parser = &parser, .expression = expression.value(&parser) }});
 
-    if (expression.data != .err) {
-        std.log.info("{}", .{eval(expression)});
+    if (expression.value(&parser).data != .err) {
+        std.log.info("{}", .{eval(&parser, expression)});
     }
 }
 
-fn eval(expression: *Parser.Expression) types.Int {
-    return switch (expression.data) {
+fn eval(parser: *Parser, expression: Parser.Expression.Handle) types.Int {
+    return switch (expression.value(parser).data) {
         .lit => |lit| lit.int,
-        .neg => |neg| -eval(neg),
+        .neg => |neg| -eval(parser, neg),
         .bin => |bin| {
-            const left = eval(bin.left);
-            const right = eval(bin.right);
+            const left = eval(parser, bin.left);
+            const right = eval(parser, bin.right);
 
             return switch (bin.op) {
                 .add => left + right,
