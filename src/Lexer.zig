@@ -9,7 +9,7 @@ pub const Token = struct {
         eof,
         ident: []const u8,
         int: types.Int,
-        float,
+        real: types.Real,
         add,
         sub,
         mul,
@@ -23,7 +23,7 @@ pub const Token = struct {
         pub fn isLiteral(tag: Tag) bool {
             return switch (tag) {
                 .int => true,
-                .float => true,
+                .real => true,
                 else => false,
             };
         }
@@ -32,6 +32,7 @@ pub const Token = struct {
             switch (this) {
                 .err => |err| try writer.print("err '{s}' ", .{err}),
                 .int => |int| try writer.print("{}", .{int}),
+                .real => |real| try writer.print("{}f", .{real}),
                 .ident => |ident| try writer.print("ident: '{s}'", .{ident}),
                 else => try writer.print("{s} ", .{@tagName(this)}),
             }
@@ -100,33 +101,54 @@ pub fn nextToken(this: *@This()) Token {
     };
 }
 
-// TODO: allow for flaots too
 pub fn parseNum(this: *@This()) Token {
     const start = this.index;
+    var radix: bool = false;
 
     while (true) {
         const maybe_c = this.peekChar(0);
+        const valid = if (maybe_c) |c| std.ascii.isDigit(c) else false;
 
-        if (maybe_c == null or !std.ascii.isDigit(maybe_c.?)) {
-            const len: u32 = @intCast(this.index - start);
+        if (valid) {
+            this.index += 1;
+            continue;
+        }
 
-            return .{
-                .start = start,
-                .data = .{
-                    .int = std.fmt.parseInt(types.Int, this.src[start .. start + len], 0) catch |err| {
-                        const message_nt: [*:0]const u8 = @errorName(err);
-                        const message = message_nt[0..std.mem.len(message_nt)];
+        const c = maybe_c.?;
+        if (c == '.') {
+            if (radix) {
+                return .{
+                    .start = start,
+                    .data = .{
+                        .err = "double radix point",
+                    },
+                };
+            }
 
+            radix = true;
+            this.index += 1;
+            continue;
+        }
+
+        const str = this.src[start..this.index];
+        return .{
+            .start = start,
+            .data = if (radix) .{
+                .real = std.fmt.parseFloat(types.Real, str) catch |err| switch (err) {
+                    error.InvalidCharacter => unreachable,
+                },
+            } else .{
+                .int = std.fmt.parseInt(types.Int, str, 0) catch |err| switch (err) {
+                    error.InvalidCharacter => unreachable,
+                    error.Overflow => {
                         return .{
                             .start = start,
-                            .data = .{ .err = message },
+                            .data = .{ .err = "int overflow" },
                         };
                     },
                 },
-            };
-        }
-
-        this.index += 1;
+            },
+        };
     }
 }
 
@@ -135,18 +157,19 @@ pub fn parseIdentifier(this: *@This()) Token {
 
     while (true) {
         const maybe_c = this.peekChar(0);
-        const valid = maybe_c != null and (std.ascii.isAlphanumeric(maybe_c.?) or maybe_c.? == '_');
+        const valid = if (maybe_c) |c| std.ascii.isAlphanumeric(c) or c == '_' else false;
 
-        if (!valid) {
-            return .{
-                .start = start,
-                .data = .{
-                    .ident = this.src[start..this.index],
-                },
-            };
+        if (valid) {
+            this.index += 1;
+            continue;
         }
 
-        this.index += 1;
+        return .{
+            .start = start,
+            .data = .{
+                .ident = this.src[start..this.index],
+            },
+        };
     }
 }
 

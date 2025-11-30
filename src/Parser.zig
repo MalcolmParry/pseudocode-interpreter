@@ -137,7 +137,7 @@ pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
                 .data = .{ .err = err },
             });
         },
-        .int, .float => .{ .lit = token.data },
+        .int, .real => .{ .lit = token.data },
         else => .{
             .err = "unexpected token",
         },
