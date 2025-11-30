@@ -54,17 +54,16 @@ pub fn init(src: []const u8) @This() {
 }
 
 pub fn nextToken(this: *@This()) Token {
-    while (this.peekChar(0) != null and std.ascii.isWhitespace(this.peekChar(0).?))
+    while (if (this.peekChar(0)) |c| std.ascii.isWhitespace(c) else false)
         this.index += 1;
 
     const maybe_c = this.peekChar(0);
     const start = this.index;
-    if (maybe_c == null) return .{
+    const c = if (maybe_c) |c| c else return .{
         .start = @intCast(this.src.len - 1),
         .data = .eof,
     };
 
-    const c = maybe_c.?;
     if (std.ascii.isDigit(c)) return this.parseNum();
     if (std.ascii.isAlphabetic(c) or c == '_') return this.parseIdentifier();
 
@@ -107,25 +106,23 @@ pub fn parseNum(this: *@This()) Token {
 
     while (true) {
         const maybe_c = this.peekChar(0);
-        const valid = if (maybe_c) |c| std.ascii.isDigit(c) else false;
+        const valid = if (maybe_c) |c| std.ascii.isDigit(c) or c == '.' else false;
 
         if (valid) {
-            this.index += 1;
-            continue;
-        }
+            const c = maybe_c.?;
+            if (c == '.') {
+                if (radix) {
+                    return .{
+                        .start = start,
+                        .data = .{
+                            .err = "double radix point",
+                        },
+                    };
+                }
 
-        const c = maybe_c.?;
-        if (c == '.') {
-            if (radix) {
-                return .{
-                    .start = start,
-                    .data = .{
-                        .err = "double radix point",
-                    },
-                };
+                radix = true;
             }
 
-            radix = true;
             this.index += 1;
             continue;
         }
