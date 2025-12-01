@@ -1,7 +1,6 @@
 const std = @import("std");
 const State = @import("State.zig");
 const Parser = @import("Parser.zig");
-const types = @import("types.zig");
 
 const Runner = @This();
 
@@ -100,8 +99,8 @@ pub const Type = enum {
 
 pub const Value = union(Type) {
     undef: void,
-    int: types.Int,
-    real: types.Real,
+    int: State.types.Int,
+    real: State.types.Real,
     t: Type,
 
     pub fn format(this: @This(), writer: *std.Io.Writer) !void {

@@ -1,7 +1,6 @@
 const std = @import("std");
 const State = @import("State.zig");
 const Lexer = @import("Lexer.zig");
-const types = @import("types.zig");
 
 const Parser = @This();
 

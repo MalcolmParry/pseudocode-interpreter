@@ -3,7 +3,6 @@ const State = @import("State.zig");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 const Runner = @import("Runner.zig");
-const types = @import("types.zig");
 
 const src: []const u8 = @embedFile("example.pseudo");
 

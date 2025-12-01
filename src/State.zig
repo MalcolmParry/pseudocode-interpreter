@@ -79,20 +79,7 @@ pub fn newCodeBlock(this: *@This(), new: Parser.CodeBlock) !Parser.CodeBlock.Han
     return @enumFromInt(this.code_blocks.items.len - 1);
 }
 
-pub fn errorExpression(this: *@This(), start: u32, err: []const u8) !Parser.Expression.Handle {
-    return newExpression(this, .{
-        .start = start,
-        .data = .{
-            .err = err,
-        },
-    });
-}
-
-pub fn errorStatement(this: *@This(), start: u32, err: []const u8) !Parser.Statement.Handle {
-    return newStatement(this, .{
-        .start = start,
-        .data = .{
-            .err = err,
-        },
-    });
-}
+pub const types = struct {
+    pub const Int = i64;
+    pub const Real = f64;
+};

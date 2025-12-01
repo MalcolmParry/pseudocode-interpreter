@@ -1,5 +1,4 @@
 const std = @import("std");
-const types = @import("types.zig");
 const State = @import("State.zig");
 
 state: *State,
@@ -93,11 +92,11 @@ pub fn parseNum(this: *@This()) error{Lexer}!Token {
         return .{
             .start = start,
             .data = if (radix_point) .{
-                .real = std.fmt.parseFloat(types.Real, str) catch |err| switch (err) {
+                .real = std.fmt.parseFloat(State.types.Real, str) catch |err| switch (err) {
                     error.InvalidCharacter => unreachable,
                 },
             } else .{
-                .int = std.fmt.parseInt(types.Int, str, 0) catch |err| switch (err) {
+                .int = std.fmt.parseInt(State.types.Int, str, 0) catch |err| switch (err) {
                     error.InvalidCharacter => unreachable,
                     error.Overflow => {
                         this.state.logErr("integer overflow", .{});
@@ -158,8 +157,8 @@ pub const Token = struct {
         whitespace,
         ident: []const u8,
         // literal
-        int: types.Int,
-        real: types.Real,
+        int: State.types.Int,
+        real: State.types.Real,
         // bin op
         add,
         sub,
