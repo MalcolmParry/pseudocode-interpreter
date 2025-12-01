@@ -43,14 +43,6 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             switch (token2.data) {
                 .assign => {
                     const expression = try this.parseExpression(0);
-                    if (expression.value(this.state).data == .err) {
-                        return this.state.newStatement(.{
-                            .start = expression.value(this.state).start,
-                            .data = .{
-                                .err = expression.value(this.state).data.err,
-                            },
-                        });
-                    }
 
                     return this.state.newStatement(.{
                         .start = token.start,
@@ -89,7 +81,6 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
         },
         .output => {
             const expression = try this.parseExpression(0);
-            if (expression.value(this.state).data == .err) return this.state.errorStatement(expression.value(this.state).start, expression.value(this.state).data.err);
 
             return this.state.newStatement(.{
                 .start = token.start,
@@ -102,12 +93,11 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
     }
 }
 
-pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer }!Expression.Handle {
+pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, Parser }!Expression.Handle {
     if (order >= order_of_operation.len)
         return this.parseUnaryOp();
 
     var left = try this.parseExpression(order + 1);
-    if (left.value(this.state).data == .err) return left;
 
     while (true) {
         const op_tok = try this.lexer.peekToken();
@@ -122,7 +112,6 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer }
         _ = this.lexer.nextToken() catch unreachable;
 
         const right = try this.parseExpression(order + 1);
-        if (right.value(this.state).data == .err) return right;
 
         left = try this.state.newExpression(.{
             .start = left.value(this.state).start,
@@ -135,13 +124,12 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer }
     }
 }
 
-pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
+pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expression.Handle {
     const token = try this.lexer.nextToken();
 
     const data: Expression.Data = switch (token.data) {
         .sub => {
             const expression = try this.parseUnaryOp();
-            if (expression.value(this.state).data == .err) return expression;
 
             return this.state.newExpression(.{
                 .start = token.start,
@@ -150,17 +138,22 @@ pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
         },
         .lparen => {
             const expression = try this.parseExpression(0);
-            if (expression.value(this.state).data == .err) return expression;
             expression.value(this.state).start = token.start;
             const rparen = try this.lexer.nextToken();
 
-            if (rparen.data != .rparen) return this.state.errorExpression(rparen.start, "expected )");
+            if (rparen.data != .rparen) {
+                this.state.logErr("expected ')' got '{t}'", .{rparen.data});
+                this.state.srcLoc(rparen.start, 1); // TODO: add length
+                return error.Parser;
+            }
 
             return expression;
         },
         .int, .real, .ident => .{ .lit = token.data },
-        else => .{
-            .err = "unexpected token",
+        else => {
+            this.state.logErr("unexpected token '{t}'", .{token.data});
+            this.state.srcLoc(token.start, 1); // TODO: add length
+            return error.Parser;
         },
     };
 
@@ -215,7 +208,6 @@ pub const Expression = struct {
         lit: Lexer.Token.Data,
         neg: Expression.Handle,
         bin: BinaryOp,
-        err: []const u8,
     };
 
     pub const Formatter = struct {
@@ -231,7 +223,6 @@ pub const Expression = struct {
                     bin.op.getChar(),
                     Formatter{ .state = this.state, .this = bin.right },
                 }),
-                .err => |err| try writer.print("parser error: {s}", .{err}),
             }
         }
     };

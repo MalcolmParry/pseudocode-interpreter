@@ -69,7 +69,6 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
             .ident => |ident| if (scope.getVariable(ident)) |val| val.* else return .{ .err = .{ .start = expression.start, .message = "variable not defined" } },
             else => unreachable,
         },
-        .err => unreachable,
         else => unreachable, // temporary
     };
 
