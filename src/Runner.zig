@@ -1,12 +1,12 @@
 const std = @import("std");
+const State = @import("State.zig");
 const Parser = @import("Parser.zig");
 const types = @import("types.zig");
 
 const Runner = @This();
 
+state: *State,
 parser: *Parser,
-alloc: std.mem.Allocator,
-root: Parser.CodeBlock.Handle,
 
 pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{OutOfMemory}!?Error {
     var scope: Scope = .{
@@ -14,25 +14,27 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
         .parent = parent_scope,
     };
 
-    for (block.value(this.parser).statements) |statement| {
-        switch (statement.value(this.parser).data) {
+    for (block.value(this.state).statements) |statement_handle| {
+        const statement = statement_handle.value(this.state);
+
+        switch (statement.data) {
             .define => |define| {
                 if (scope.variables.contains(define.ident)) return .{
-                    .start = statement.value(this.parser).start,
+                    .start = statement.start,
                     .message = "variable already defined",
                 };
 
                 const t_var = if (scope.getVariable(define.t)) |t_var| t_var else return .{
-                    .start = statement.value(this.parser).start,
+                    .start = statement.start,
                     .message = "type not defined",
                 };
 
                 const t = if (t_var.* == .t) t_var.t else return .{
-                    .start = statement.value(this.parser).start,
+                    .start = statement.start,
                     .message = "expected type",
                 };
 
-                try scope.variables.put(this.alloc, define.ident, t.default());
+                try scope.variables.put(this.state.alloc, define.ident, t.default());
             },
             .assign => |assign| {
                 const variable = try scope.getOrCreateVariable(this, assign.ident);
@@ -58,7 +60,7 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
 }
 
 pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.Expression.Handle) !ValueOrError {
-    const expression = expression_handle.value(this.parser);
+    const expression = expression_handle.value(this.state);
 
     const value: Value = switch (expression.data) {
         .lit => |lit| switch (lit) {
@@ -75,8 +77,8 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
 }
 
 pub fn addRuntimePrimatives(this: *@This(), scope: *Scope) !void {
-    try scope.variables.put(this.alloc, "INTEGER", .{ .t = .int });
-    try scope.variables.put(this.alloc, "REAL", .{ .t = .real });
+    try scope.variables.put(this.state.alloc, "INTEGER", .{ .t = .int });
+    try scope.variables.put(this.state.alloc, "REAL", .{ .t = .real });
 }
 
 pub const Type = enum {
@@ -121,7 +123,7 @@ pub const Scope = struct {
     pub fn getOrCreateVariable(this: *@This(), runner: *Runner, name: []const u8) error{OutOfMemory}!*Value {
         if (getVariable(this, name)) |variable| return variable;
 
-        try this.variables.put(runner.alloc, name, .undef);
+        try this.variables.put(runner.state.alloc, name, .undef);
         return this.variables.getPtr(name).?;
     }
 

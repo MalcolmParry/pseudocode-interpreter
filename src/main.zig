@@ -16,7 +16,7 @@ pub fn main() !void {
     var state: State = .{ .alloc = alloc, .src = src, .err_writer = err_writer };
     var lexer: Lexer = .{ .state = &state };
 
-    try state.err_writer.print("=== TOKENS ===\n\n", .{});
+    try state.err_writer.print("=== TOKENS ===\n", .{});
     while (true) {
         const token = lexer.nextToken() catch |err| if (err != error.LexerError) return err else return;
         try err_writer.print("{f}\n", .{token.data});
@@ -33,22 +33,24 @@ pub fn main() !void {
     };
 
     const code_block = try parser.parseCodeBlock(.eof, 0);
-    try state.err_writer.print("{f}\n", .{Parser.CodeBlock.Formatter{ .state = &state, .this = code_block }});
+    try state.err_writer.print("{f}", .{Parser.CodeBlock.Formatter{ .state = &state, .this = code_block }});
     try state.err_writer.flush();
 
-    // var runner: Runner = .{
-    //     .parser = &parser,
-    //     .root = code_block,
-    //     .alloc = alloc,
-    // };
-    //
-    // var root_scope: Runner.Scope = .{
-    //     .variables = .empty,
-    //     .parent = null,
-    // };
-    // try runner.addRuntimePrimatives(&root_scope);
-    //
-    // const maybe_err = try runner.runCodeBlock(code_block, &root_scope);
-    // if (maybe_err) |err|
-    //     std.log.info("{s}", .{err.message});
+    var runner: Runner = .{
+        .state = &state,
+        .parser = &parser,
+    };
+
+    var root_scope: Runner.Scope = .{
+        .variables = .empty,
+        .parent = null,
+    };
+    try runner.addRuntimePrimatives(&root_scope);
+
+    try state.err_writer.print("\n=== RUNNER ===\n", .{});
+    const maybe_err = try runner.runCodeBlock(code_block, &root_scope);
+    if (maybe_err) |err|
+        std.log.info("{s}", .{err.message});
+
+    try state.err_writer.flush();
 }
