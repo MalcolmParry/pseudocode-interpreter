@@ -52,7 +52,6 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                 if (value == .err) return value.err;
                 std.log.scoped(.pseudo).info("{f}", .{value.value});
             },
-            .err => unreachable,
         }
     }
 
@@ -92,7 +91,7 @@ pub const Type = enum {
             .undef => @panic("undef should only be used for internal stuff. a variable should never have type undef when facing the user"),
             .int => .{ .int = 0 },
             .real => .{ .real = 0 },
-            .t => @panic("thign"), // get better messages
+            .t => @panic("no default type"),
         };
     }
 };

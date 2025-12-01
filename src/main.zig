@@ -18,7 +18,7 @@ pub fn main() !void {
 
     try state.err_writer.print("=== TOKENS ===\n", .{});
     while (true) {
-        const token = lexer.nextToken() catch |err| if (err != error.LexerError) return err else return;
+        const token = lexer.nextToken() catch |err| if (err != error.Lexer) return err else return;
         try err_writer.print("{f}\n", .{token.data});
         if (token.data == .eof) break;
     }
@@ -32,7 +32,7 @@ pub fn main() !void {
         .lexer = &lexer,
     };
 
-    const code_block = try parser.parseCodeBlock(.eof, 0);
+    const code_block = parser.parseCodeBlock(.eof, 0) catch |err| if (err != error.Parser) return err else return;
     try state.err_writer.print("{f}", .{Parser.CodeBlock.Formatter{ .state = &state, .this = code_block }});
     try state.err_writer.flush();
 
