@@ -1,10 +1,14 @@
 const std = @import("std");
+const Parser = @import("Parser.zig");
 
 alloc: std.mem.Allocator,
-src: []const u8,
 err_writer: *std.Io.Writer,
+src: []const u8,
+expressions: std.ArrayList(Parser.Expression) = .{},
+statements: std.ArrayList(Parser.Statement) = .{},
+code_blocks: std.ArrayList(Parser.CodeBlock) = .{},
 
-pub fn err(this: *@This(), comptime fmt: []const u8, args: anytype) void {
+pub fn logErr(this: *@This(), comptime fmt: []const u8, args: anytype) void {
     std.Io.tty.Config.setColor(.escape_codes, this.err_writer, .red) catch @panic("color setting failed");
     this.err_writer.print("error: " ++ fmt ++ "\n", args) catch @panic("printing failed");
     std.Io.tty.Config.setColor(.escape_codes, this.err_writer, .reset) catch @panic("color setting failed");
@@ -36,4 +40,37 @@ pub fn srcLoc(this: *@This(), start: u32, len: u32) void {
     this.err_writer.print("\n", .{}) catch @panic("failed printing");
     tty.setColor(this.err_writer, .reset) catch @panic("failed to set color");
     this.err_writer.flush() catch @panic("failed flushing");
+}
+
+pub fn newExpression(this: *@This(), new: Parser.Expression) !Parser.Expression.Handle {
+    try this.expressions.append(this.alloc, new);
+    return @enumFromInt(this.expressions.items.len - 1);
+}
+
+pub fn newStatement(this: *@This(), new: Parser.Statement) !Parser.Statement.Handle {
+    try this.statements.append(this.alloc, new);
+    return @enumFromInt(this.statements.items.len - 1);
+}
+
+pub fn newCodeBlock(this: *@This(), new: Parser.CodeBlock) !Parser.CodeBlock.Handle {
+    try this.code_blocks.append(this.alloc, new);
+    return @enumFromInt(this.code_blocks.items.len - 1);
+}
+
+pub fn errorExpression(this: *@This(), start: u32, err: []const u8) !Parser.Expression.Handle {
+    return newExpression(this, .{
+        .start = start,
+        .data = .{
+            .err = err,
+        },
+    });
+}
+
+pub fn errorStatement(this: *@This(), start: u32, err: []const u8) !Parser.Statement.Handle {
+    return newStatement(this, .{
+        .start = start,
+        .data = .{
+            .err = err,
+        },
+    });
 }

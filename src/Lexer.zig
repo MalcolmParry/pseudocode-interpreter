@@ -5,7 +5,7 @@ const State = @import("State.zig");
 state: *State,
 index: u32 = 0,
 
-pub fn nextToken(this: *@This()) error{LexerError}!Token {
+pub fn nextToken(this: *@This()) error{Lexer}!Token {
     while (if (this.peekChar(0)) |c| std.ascii.isWhitespace(c) else false)
         this.index += 1;
 
@@ -42,9 +42,9 @@ pub fn nextToken(this: *@This()) error{LexerError}!Token {
         } else .less,
         '>' => .more,
         else => {
-            this.state.err("unexpected character '{c}'", .{c});
+            this.state.logErr("unexpected character '{c}'", .{c});
             this.state.srcLoc(start, 1);
-            return error.LexerError;
+            return error.Lexer;
         },
     };
 
@@ -55,7 +55,7 @@ pub fn nextToken(this: *@This()) error{LexerError}!Token {
     };
 }
 
-pub fn parseNum(this: *@This()) error{LexerError}!Token {
+pub fn parseNum(this: *@This()) error{Lexer}!Token {
     const start = this.index;
     var radix_point: bool = false;
 
@@ -67,9 +67,9 @@ pub fn parseNum(this: *@This()) error{LexerError}!Token {
             const c = maybe_c.?;
             if (c == '.') {
                 if (radix_point) {
-                    this.state.err("double radix point", .{});
+                    this.state.logErr("double radix point", .{});
                     this.state.srcLoc(this.index, 1);
-                    return error.LexerError;
+                    return error.Lexer;
                 }
 
                 radix_point = true;
@@ -90,9 +90,9 @@ pub fn parseNum(this: *@This()) error{LexerError}!Token {
                 .int = std.fmt.parseInt(types.Int, str, 0) catch |err| switch (err) {
                     error.InvalidCharacter => unreachable,
                     error.Overflow => {
-                        this.state.err("integer overflow", .{});
+                        this.state.logErr("integer overflow", .{});
                         this.state.srcLoc(start, this.index - start);
-                        return error.LexerError;
+                        return error.Lexer;
                     },
                 },
             },
@@ -132,7 +132,7 @@ pub fn peekChar(this: *@This(), offset: usize) ?u8 {
     return this.state.src[this.index + offset];
 }
 
-pub fn peekToken(this: *@This()) Token {
+pub fn peekToken(this: *@This()) error{Lexer}!Token {
     var copy = this.*;
     return copy.nextToken();
 }

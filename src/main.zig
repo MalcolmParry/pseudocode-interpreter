@@ -24,17 +24,18 @@ pub fn main() !void {
     }
     try state.err_writer.flush();
 
-    // lexer.index = 0;
-    // std.log.info("\n\n\n", .{});
-    //
-    // var parser: Parser = .{
-    //     .alloc = alloc,
-    //     .lexer = &lexer,
-    // };
-    //
-    // const code_block = try parser.parseCodeBlock(.eof, 0);
-    // std.log.info("Code Block\n{f}", .{Parser.CodeBlock.Formatter{ .parser = &parser, .this = code_block }});
-    //
+    lexer.index = 0;
+    try state.err_writer.print("\n=== AST ===\n", .{});
+
+    var parser: Parser = .{
+        .state = &state,
+        .lexer = &lexer,
+    };
+
+    const code_block = try parser.parseCodeBlock(.eof, 0);
+    try state.err_writer.print("{f}\n", .{Parser.CodeBlock.Formatter{ .state = &state, .this = code_block }});
+    try state.err_writer.flush();
+
     // var runner: Runner = .{
     //     .parser = &parser,
     //     .root = code_block,

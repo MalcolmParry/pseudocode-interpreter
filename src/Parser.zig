@@ -1,61 +1,58 @@
 const std = @import("std");
+const State = @import("State.zig");
 const Lexer = @import("Lexer.zig");
 const types = @import("types.zig");
 
 const Parser = @This();
 
+state: *State,
 lexer: *Lexer,
-expressions: std.ArrayList(Expression) = .{},
-statements: std.ArrayList(Statement) = .{},
-code_blocks: std.ArrayList(CodeBlock) = .{},
-alloc: std.mem.Allocator,
 
 pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !CodeBlock.Handle {
     var statements: std.ArrayList(Statement.Handle) = .{};
-    errdefer statements.deinit(this.alloc);
+    errdefer statements.deinit(this.state.alloc);
 
-    while (this.lexer.peekToken().data != end) {
+    while ((try this.lexer.peekToken()).data != end) {
         const next = try this.parseStatement();
 
-        if (next.value(this).data == .err) {
-            statements.deinit(this.alloc);
+        if (next.value(this.state).data == .err) {
+            statements.deinit(this.state.alloc);
 
-            return this.newCodeBlock(.{
-                .start = next.value(this).start,
+            return this.state.newCodeBlock(.{
+                .start = next.value(this.state).start,
                 .statements = &.{next},
             });
         }
 
-        try statements.append(this.alloc, next);
+        try statements.append(this.state.alloc, next);
     }
 
-    return this.newCodeBlock(.{
+    return this.state.newCodeBlock(.{
         .start = start,
         .statements = statements.items,
     });
 }
 
 pub fn parseStatement(this: *@This()) !Statement.Handle {
-    const token = this.lexer.nextToken();
+    const token = try this.lexer.nextToken();
 
     switch (token.data) {
         .ident => |ident| {
-            const token2 = this.lexer.peekToken();
+            const token2 = try this.lexer.nextToken();
 
             switch (token2.data) {
                 .assign => {
-                    _ = this.lexer.nextToken();
                     const expression = try this.parseExpression(0);
-                    if (expression.value(this).data == .err) {
-                        return this.newStatement(.{
-                            .start = expression.value(this).start,
+                    if (expression.value(this.state).data == .err) {
+                        return this.state.newStatement(.{
+                            .start = expression.value(this.state).start,
                             .data = .{
-                                .err = expression.value(this).data.err,
+                                .err = expression.value(this.state).data.err,
                             },
                         });
                     }
 
-                    return this.newStatement(.{
+                    return this.state.newStatement(.{
                         .start = token.start,
                         .data = .{
                             .assign = .{
@@ -65,22 +62,22 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                         },
                     });
                 },
-                else => return this.errorStatement(token.start, "unexpected token"),
+                else => return this.state.errorStatement(token.start, "unexpected token"),
             }
         },
         .define => {
-            const ident = this.lexer.nextToken();
+            const ident = try this.lexer.nextToken();
             if (ident.data != .ident)
-                return this.errorStatement(token.start, "expected identifier");
+                return this.state.errorStatement(token.start, "expected identifier");
 
-            if (this.lexer.nextToken().data != .colon)
-                return this.errorStatement(token.start, "expected colon");
+            if ((try this.lexer.nextToken()).data != .colon)
+                return this.state.errorStatement(token.start, "expected colon");
 
-            const t = this.lexer.nextToken();
+            const t = try this.lexer.nextToken();
             if (t.data != .ident)
-                return this.errorStatement(t.start, "expected type identifier");
+                return this.state.errorStatement(t.start, "expected type identifier");
 
-            return this.newStatement(.{
+            return this.state.newStatement(.{
                 .start = token.start,
                 .data = .{
                     .define = .{
@@ -92,29 +89,28 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
         },
         .output => {
             const expression = try this.parseExpression(0);
-            if (expression.value(this).data == .err) return this.errorStatement(expression.value(this).start, expression.value(this).data.err);
+            if (expression.value(this.state).data == .err) return this.state.errorStatement(expression.value(this.state).start, expression.value(this.state).data.err);
 
-            return this.newStatement(.{
+            return this.state.newStatement(.{
                 .start = token.start,
                 .data = .{
                     .output = expression,
                 },
             });
         },
-        .err => |err| return this.errorStatement(token.start, err),
-        else => return this.errorStatement(token.start, "unexpected token"),
+        else => return this.state.errorStatement(token.start, "unexpected token"),
     }
 }
 
-pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!Expression.Handle {
+pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer }!Expression.Handle {
     if (order >= order_of_operation.len)
         return this.parseUnaryOp();
 
     var left = try this.parseExpression(order + 1);
-    if (left.value(this).data == .err) return left;
+    if (left.value(this.state).data == .err) return left;
 
     while (true) {
-        const op_tok = this.lexer.peekToken();
+        const op_tok = try this.lexer.peekToken();
         const op: BinaryOp.Op = switch (op_tok.data) {
             .add => .add,
             .sub => .sub,
@@ -123,13 +119,13 @@ pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!Expressi
             else => return left,
         };
         if (!op.canUse(order)) return left;
-        _ = this.lexer.nextToken();
+        _ = this.lexer.nextToken() catch unreachable;
 
         const right = try this.parseExpression(order + 1);
-        if (right.value(this).data == .err) return right;
+        if (right.value(this.state).data == .err) return right;
 
-        left = try this.newExpression(.{
-            .start = left.value(this).start,
+        left = try this.state.newExpression(.{
+            .start = left.value(this.state).start,
             .data = .{ .bin = .{
                 .left = left,
                 .right = right,
@@ -140,33 +136,27 @@ pub fn parseExpression(this: *@This(), order: usize) error{OutOfMemory}!Expressi
 }
 
 pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
-    const token = this.lexer.nextToken();
+    const token = try this.lexer.nextToken();
 
     const data: Expression.Data = switch (token.data) {
         .sub => {
             const expression = try this.parseUnaryOp();
-            if (expression.value(this).data == .err) return expression;
+            if (expression.value(this.state).data == .err) return expression;
 
-            return this.newExpression(.{
+            return this.state.newExpression(.{
                 .start = token.start,
                 .data = .{ .neg = expression },
             });
         },
         .lparen => {
             const expression = try this.parseExpression(0);
-            if (expression.value(this).data == .err) return expression;
-            expression.value(this).start = token.start;
-            const rparen = this.lexer.nextToken();
+            if (expression.value(this.state).data == .err) return expression;
+            expression.value(this.state).start = token.start;
+            const rparen = try this.lexer.nextToken();
 
-            if (rparen.data != .rparen) return this.errorExpression(rparen.start, "expected )");
+            if (rparen.data != .rparen) return this.state.errorExpression(rparen.start, "expected )");
 
             return expression;
-        },
-        .err => |err| {
-            return this.newExpression(.{
-                .start = token.start,
-                .data = .{ .err = err },
-            });
         },
         .int, .real, .ident => .{ .lit = token.data },
         else => .{
@@ -174,42 +164,9 @@ pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
         },
     };
 
-    return this.newExpression(.{
+    return this.state.newExpression(.{
         .start = token.start,
         .data = data,
-    });
-}
-
-pub fn newExpression(this: *@This(), new: Expression) !Expression.Handle {
-    try this.expressions.append(this.alloc, new);
-    return @enumFromInt(this.expressions.items.len - 1);
-}
-
-pub fn newStatement(this: *@This(), new: Statement) !Statement.Handle {
-    try this.statements.append(this.alloc, new);
-    return @enumFromInt(this.statements.items.len - 1);
-}
-
-pub fn newCodeBlock(this: *@This(), new: CodeBlock) !CodeBlock.Handle {
-    try this.code_blocks.append(this.alloc, new);
-    return @enumFromInt(this.code_blocks.items.len - 1);
-}
-
-pub fn errorExpression(this: *@This(), start: u32, err: []const u8) !Expression.Handle {
-    return newExpression(this, .{
-        .start = start,
-        .data = .{
-            .err = err,
-        },
-    });
-}
-
-pub fn errorStatement(this: *@This(), start: u32, err: []const u8) !Statement.Handle {
-    return newStatement(this, .{
-        .start = start,
-        .data = .{
-            .err = err,
-        },
     });
 }
 
@@ -262,17 +219,17 @@ pub const Expression = struct {
     };
 
     pub const Formatter = struct {
-        parser: *Parser,
+        state: *State,
         this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            switch (this.this.value(this.parser).data) {
+            switch (this.this.value(this.state).data) {
                 .lit => |lit| try writer.print("{f}", .{lit}),
-                .neg => |neg| try writer.print("-{f}", .{Formatter{ .parser = this.parser, .this = neg }}),
+                .neg => |neg| try writer.print("-{f}", .{Formatter{ .state = this.state, .this = neg }}),
                 .bin => |bin| try writer.print("({f} {c} {f})", .{
-                    Formatter{ .parser = this.parser, .this = bin.left },
+                    Formatter{ .state = this.state, .this = bin.left },
                     bin.op.getChar(),
-                    Formatter{ .parser = this.parser, .this = bin.right },
+                    Formatter{ .state = this.state, .this = bin.right },
                 }),
                 .err => |err| try writer.print("parser error: {s}", .{err}),
             }
@@ -282,8 +239,8 @@ pub const Expression = struct {
     pub const Handle = enum(u32) {
         _,
 
-        pub fn value(handle: @This(), parser: *Parser) *Expression {
-            return &parser.expressions.items[@intFromEnum(handle)];
+        pub fn value(handle: @This(), state: *State) *Expression {
+            return &state.expressions.items[@intFromEnum(handle)];
         }
     };
 };
@@ -310,14 +267,14 @@ pub const Statement = struct {
     };
 
     pub const Formatter = struct {
-        parser: *Parser,
+        state: *State,
         this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            switch (this.this.value(this.parser).data) {
-                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .parser = this.parser, .this = assign.value } }),
+            switch (this.this.value(this.state).data) {
+                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .state = this.state, .this = assign.value } }),
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
-                .output => |output| try writer.print("ouput {f}", .{Expression.Formatter{ .parser = this.parser, .this = output }}),
+                .output => |output| try writer.print("ouput {f}", .{Expression.Formatter{ .state = this.state, .this = output }}),
                 .err => |err| try writer.print("parser error: {s}", .{err}),
             }
         }
@@ -326,8 +283,8 @@ pub const Statement = struct {
     pub const Handle = enum(u32) {
         _,
 
-        pub fn value(handle: @This(), parser: *Parser) *Statement {
-            return &parser.statements.items[@intFromEnum(handle)];
+        pub fn value(handle: @This(), state: *State) *Statement {
+            return &state.statements.items[@intFromEnum(handle)];
         }
     };
 };
@@ -337,12 +294,12 @@ pub const CodeBlock = struct {
     start: u32,
 
     pub const Formatter = struct {
-        parser: *Parser,
+        state: *State,
         this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            for (this.this.value(this.parser).statements) |statement| {
-                try writer.print("{f}\n", .{Statement.Formatter{ .parser = this.parser, .this = statement }});
+            for (this.this.value(this.state).statements) |statement| {
+                try writer.print("{f}\n", .{Statement.Formatter{ .state = this.state, .this = statement }});
             }
         }
     };
@@ -350,8 +307,8 @@ pub const CodeBlock = struct {
     pub const Handle = enum(u32) {
         _,
 
-        pub fn value(handle: @This(), parser: *Parser) *CodeBlock {
-            return &parser.code_blocks.items[@intFromEnum(handle)];
+        pub fn value(handle: @This(), state: *State) *CodeBlock {
+            return &state.code_blocks.items[@intFromEnum(handle)];
         }
     };
 };
