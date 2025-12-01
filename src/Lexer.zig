@@ -8,17 +8,24 @@ pub const Token = struct {
         err: []const u8,
         eof,
         ident: []const u8,
+        // literal
         int: types.Int,
         real: types.Real,
+        // bin op
         add,
         sub,
         mul,
         div,
+        // symbol
+        colon,
         lparen,
         rparen,
         assign,
         less,
         more,
+        // keyword
+        define,
+        output,
 
         pub fn isLiteral(tag: Tag) bool {
             return switch (tag) {
@@ -33,7 +40,7 @@ pub const Token = struct {
                 .err => |err| try writer.print("err '{s}' ", .{err}),
                 .int => |int| try writer.print("{}", .{int}),
                 .real => |real| try writer.print("{}f", .{real}),
-                .ident => |ident| try writer.print("ident: '{s}'", .{ident}),
+                .ident => |ident| try writer.print("@'{s}'", .{ident}),
                 else => try writer.print("{s} ", .{@tagName(this)}),
             }
         }
@@ -68,6 +75,7 @@ pub fn nextToken(this: *@This()) Token {
     if (std.ascii.isAlphabetic(c) or c == '_') return this.parseIdentifier();
 
     const token: Token.Data = switch (c) {
+        ':' => .colon,
         '+' => .add,
         '-' => .sub,
         '*' => .mul,
@@ -161,11 +169,17 @@ pub fn parseIdentifier(this: *@This()) Token {
             continue;
         }
 
+        const str = this.src[start..this.index];
+        const data: Token.Data = blk: {
+            if (std.mem.eql(u8, str, "DEFINE")) break :blk .define;
+            if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
+
+            break :blk .{ .ident = str };
+        };
+
         return .{
             .start = start,
-            .data = .{
-                .ident = this.src[start..this.index],
-            },
+            .data = data,
         };
     }
 }

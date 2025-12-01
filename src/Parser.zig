@@ -17,6 +17,7 @@ pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !Co
     while (this.lexer.peekToken().data != end) {
         const next = try this.parseStatement();
         std.log.info("{f}", .{Statement.Formatter{ .parser = this, .this = next }});
+
         if (next.value(this).data == .err) {
             statements.deinit(this.alloc);
 
@@ -65,32 +66,44 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                         },
                     });
                 },
-                else => {
-                    return this.newStatement(.{
-                        .start = token.start,
-                        .data = .{
-                            .err = "unexpected token",
-                        },
-                    });
-                },
+                else => return this.errorStatement(token.start, "unexpected token"),
             }
         },
-        .err => |err| {
+        .define => {
+            const ident = this.lexer.nextToken();
+            if (ident.data != .ident)
+                return this.errorStatement(token.start, "expected identifier");
+
+            if (this.lexer.nextToken().data != .colon)
+                return this.errorStatement(token.start, "expected colon");
+
+            const t = this.lexer.nextToken();
+            if (t.data != .ident)
+                return this.errorStatement(t.start, "expected type identifier");
+
             return this.newStatement(.{
                 .start = token.start,
                 .data = .{
-                    .err = err,
+                    .define = .{
+                        .ident = ident.data.ident,
+                        .t = t.data.ident,
+                    },
                 },
             });
         },
-        else => {
+        .output => {
+            const expression = try this.parseExpression(0);
+            if (expression.value(this).data == .err) return this.errorStatement(expression.value(this).start, expression.value(this).data.err);
+
             return this.newStatement(.{
                 .start = token.start,
                 .data = .{
-                    .err = "unexpected token",
+                    .output = expression,
                 },
             });
         },
+        .err => |err| return this.errorStatement(token.start, err),
+        else => return this.errorStatement(token.start, "unexpected token"),
     }
 }
 
@@ -146,14 +159,7 @@ pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
             expression.value(this).start = token.start;
             const rparen = this.lexer.nextToken();
 
-            if (rparen.data != .rparen) {
-                return this.newExpression(.{
-                    .start = rparen.start,
-                    .data = .{
-                        .err = "expected )",
-                    },
-                });
-            }
+            if (rparen.data != .rparen) return this.errorExpression(rparen.start, "expected )");
 
             return expression;
         },
@@ -163,7 +169,7 @@ pub fn parseUnaryOp(this: *@This()) !Expression.Handle {
                 .data = .{ .err = err },
             });
         },
-        .int, .real => .{ .lit = token.data },
+        .int, .real, .ident => .{ .lit = token.data },
         else => .{
             .err = "unexpected token",
         },
@@ -188,6 +194,24 @@ pub fn newStatement(this: *@This(), new: Statement) !Statement.Handle {
 pub fn newCodeBlock(this: *@This(), new: CodeBlock) !CodeBlock.Handle {
     try this.code_blocks.append(this.alloc, new);
     return @enumFromInt(this.code_blocks.items.len - 1);
+}
+
+pub fn errorExpression(this: *@This(), start: u32, err: []const u8) !Expression.Handle {
+    return newExpression(this, .{
+        .start = start,
+        .data = .{
+            .err = err,
+        },
+    });
+}
+
+pub fn errorStatement(this: *@This(), start: u32, err: []const u8) !Statement.Handle {
+    return newStatement(this, .{
+        .start = start,
+        .data = .{
+            .err = err,
+        },
+    });
 }
 
 const order_of_operation: [2][]const BinaryOp.Op = .{
@@ -271,6 +295,8 @@ pub const Statement = struct {
 
     pub const Data = union(enum) {
         assign: Assign,
+        define: Define,
+        output: Expression.Handle,
         err: []const u8,
     };
 
@@ -279,13 +305,21 @@ pub const Statement = struct {
         value: Expression.Handle,
     };
 
+    pub const Define = struct {
+        ident: []const u8,
+        t: []const u8,
+    };
+
     pub const Formatter = struct {
         parser: *Parser,
         this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this.this.value(this.parser).data) {
-                .assign => |assign| try writer.print("set '{s}' to {f}", .{ assign.ident, Expression.Formatter{ .parser = this.parser, .this = assign.value } }),
+                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .parser = this.parser, .this = assign.value } }),
+                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
+                .output => |output| try writer.print("ouput ({f})", .{Expression.Formatter{ .parser = this.parser, .this = output }}),
+
                 .err => |err| try writer.print("parser error: {s}", .{err}),
             }
         }
