@@ -8,7 +8,7 @@ const Runner = @This();
 state: *State,
 parser: *Parser,
 
-pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{OutOfMemory}!?Error {
+pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime }!void {
     var scope: Scope = .{
         .variables = .empty,
         .parent = parent_scope,
@@ -19,19 +19,22 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
 
         switch (statement.data) {
             .define => |define| {
-                if (scope.variables.contains(define.ident)) return .{
-                    .start = statement.start,
-                    .message = "variable already defined",
+                if (scope.variables.contains(define.ident)) {
+                    this.state.logErr("variable '{s}' already defined", .{define.ident});
+                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    return error.Runtime;
+                }
+
+                const t_var = if (scope.getVariable(define.t)) |t_var| t_var else {
+                    this.state.logErr("type '{s}' not defined", .{define.ident});
+                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    return error.Runtime;
                 };
 
-                const t_var = if (scope.getVariable(define.t)) |t_var| t_var else return .{
-                    .start = statement.start,
-                    .message = "type not defined",
-                };
-
-                const t = if (t_var.* == .t) t_var.t else return .{
-                    .start = statement.start,
-                    .message = "expected type",
+                const t = if (t_var.* == .t) t_var.t else {
+                    this.state.logErr("expected type got '{t}'", .{t_var.*});
+                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    return error.Runtime;
                 };
 
                 try scope.variables.put(this.state.alloc, define.ident, t.default());
@@ -39,39 +42,38 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
             .assign => |assign| {
                 const variable = try scope.getOrCreateVariable(this, assign.ident);
                 const value = try this.evalExpression(&scope, assign.value);
-                if (value == .err) return value.err;
-                if (@as(Type, value.value) != variable.*) return .{
-                    .start = 0, // fix
-                    .message = "wrong type",
-                };
+                if (@as(Type, value) != variable.*) {
+                    this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
+                    this.state.srcLoc(assign.value.value(this.state).start, 1); // TODO: improve
+                    return error.Runtime;
+                }
 
-                variable.* = value.value;
+                variable.* = value;
             },
             .output => |output| {
                 const value = try this.evalExpression(&scope, output);
-                if (value == .err) return value.err;
-                std.log.scoped(.pseudo).info("{f}", .{value.value});
+                std.log.scoped(.pseudo).info("{f}", .{value});
             },
         }
     }
-
-    return null;
 }
 
-pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.Expression.Handle) !ValueOrError {
+pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.Expression.Handle) !Value {
     const expression = expression_handle.value(this.state);
 
-    const value: Value = switch (expression.data) {
+    return switch (expression.data) {
         .lit => |lit| switch (lit) {
             .int => |int| .{ .int = int },
             .real => |real| .{ .real = real },
-            .ident => |ident| if (scope.getVariable(ident)) |val| val.* else return .{ .err = .{ .start = expression.start, .message = "variable not defined" } },
+            .ident => |ident| if (scope.getVariable(ident)) |val| val.* else {
+                this.state.logErr("variable '{s}' not defined", .{ident});
+                this.state.srcLoc(expression.start, @intCast(ident.len));
+                return error.Runtime;
+            },
             else => unreachable,
         },
         else => unreachable, // temporary
     };
-
-    return .{ .value = value };
 }
 
 pub fn addRuntimePrimatives(this: *@This(), scope: *Scope) !void {
@@ -109,11 +111,6 @@ pub const Value = union(Type) {
     }
 };
 
-pub const ValueOrError = union(enum) {
-    value: Value,
-    err: Error,
-};
-
 pub const Scope = struct {
     variables: std.StringHashMapUnmanaged(Value),
     parent: ?*Scope,
@@ -139,9 +136,4 @@ pub const Scope = struct {
             return null;
         }
     }
-};
-
-pub const Error = struct {
-    start: u32,
-    message: []const u8,
 };

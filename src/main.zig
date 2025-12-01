@@ -48,9 +48,6 @@ pub fn main() !void {
     try runner.addRuntimePrimatives(&root_scope);
 
     try state.err_writer.print("\n=== RUNNER ===\n", .{});
-    const maybe_err = try runner.runCodeBlock(code_block, &root_scope);
-    if (maybe_err) |err|
-        std.log.info("{s}", .{err.message});
-
+    runner.runCodeBlock(code_block, &root_scope) catch |err| if (err != error.Runtime) return err else return;
     try state.err_writer.flush();
 }
