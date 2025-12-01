@@ -16,13 +16,13 @@ pub const Token = struct {
         sub,
         mul,
         div,
+        less,
+        more,
         // symbol
+        assign,
         colon,
         lparen,
         rparen,
-        assign,
-        less,
-        more,
         // keyword
         define,
         output,

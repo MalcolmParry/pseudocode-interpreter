@@ -1,6 +1,7 @@
 const std = @import("std");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
+const Runner = @import("Runner.zig");
 const types = @import("types.zig");
 
 const src: []const u8 = @embedFile("example.pseudo");
@@ -24,34 +25,21 @@ pub fn main() !void {
     };
 
     const code_block = try parser.parseCodeBlock(.eof, 0);
-    std.log.info("{f}", .{Parser.CodeBlock.Formatter{ .parser = &parser, .this = code_block }});
+    std.log.info("Code Block\n{f}", .{Parser.CodeBlock.Formatter{ .parser = &parser, .this = code_block }});
 
-    // const statement = try parser.parseStatement();
-    // std.log.info("{f}", .{Parser.Statement.Formatter{ .parser = &parser, .this = statement }});
-
-    // const expression = try parser.parseExpression(0);
-    // std.log.info("{f}", .{Parser.Expression.Formatter{ .parser = &parser, .this = expression }});
-    //
-    // if (expression.value(&parser).data != .err) {
-    //     std.log.info("{}", .{eval(&parser, expression)});
-    // }
-}
-
-fn eval(parser: *Parser, expression: Parser.Expression.Handle) types.Int {
-    return switch (expression.value(parser).data) {
-        .lit => |lit| lit.int,
-        .neg => |neg| -eval(parser, neg),
-        .bin => |bin| {
-            const left = eval(parser, bin.left);
-            const right = eval(parser, bin.right);
-
-            return switch (bin.op) {
-                .add => left + right,
-                .sub => left - right,
-                .mul => left * right,
-                .div => @divTrunc(left, right),
-            };
-        },
-        .err => -1,
+    var runner: Runner = .{
+        .parser = &parser,
+        .root = code_block,
+        .alloc = alloc,
     };
+
+    var root_scope: Runner.Scope = .{
+        .variables = .empty,
+        .parent = null,
+    };
+    try runner.addRuntimePrimatives(&root_scope);
+
+    const maybe_err = try runner.runCodeBlock(code_block, &root_scope);
+    if (maybe_err) |err|
+        std.log.info("{s}", .{err.message});
 }

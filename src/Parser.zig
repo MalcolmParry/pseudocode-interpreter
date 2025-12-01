@@ -16,7 +16,6 @@ pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !Co
 
     while (this.lexer.peekToken().data != end) {
         const next = try this.parseStatement();
-        std.log.info("{f}", .{Statement.Formatter{ .parser = this, .this = next }});
 
         if (next.value(this).data == .err) {
             statements.deinit(this.alloc);
@@ -32,7 +31,7 @@ pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !Co
 
     return this.newCodeBlock(.{
         .start = start,
-        .statements = &.{},
+        .statements = statements.items,
     });
 }
 
@@ -318,8 +317,7 @@ pub const Statement = struct {
             switch (this.this.value(this.parser).data) {
                 .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .parser = this.parser, .this = assign.value } }),
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
-                .output => |output| try writer.print("ouput ({f})", .{Expression.Formatter{ .parser = this.parser, .this = output }}),
-
+                .output => |output| try writer.print("ouput {f}", .{Expression.Formatter{ .parser = this.parser, .this = output }}),
                 .err => |err| try writer.print("parser error: {s}", .{err}),
             }
         }
