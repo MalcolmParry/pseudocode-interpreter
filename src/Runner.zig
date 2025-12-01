@@ -20,19 +20,19 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
             .define => |define| {
                 if (scope.variables.contains(define.ident)) {
                     this.state.logErr("variable '{s}' already defined", .{define.ident});
-                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    this.state.srcLoc(define.ident_start, this.state.tokenLengthAt(define.ident_start));
                     return error.Runtime;
                 }
 
                 const t_var = if (scope.getVariable(define.t)) |t_var| t_var else {
-                    this.state.logErr("type '{s}' not defined", .{define.ident});
-                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    this.state.logErr("type '{s}' not defined", .{define.t});
+                    this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
                     return error.Runtime;
                 };
 
                 const t = if (t_var.* == .t) t_var.t else {
-                    this.state.logErr("expected type got '{t}'", .{t_var.*});
-                    this.state.srcLoc(statement.start, 1); // TODO: improve
+                    this.state.logErr("expected 'type' got '{t}'", .{t_var.*});
+                    this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
                     return error.Runtime;
                 };
 
@@ -42,8 +42,9 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                 const variable = try scope.getOrCreateVariable(this, assign.ident);
                 const value = try this.evalExpression(&scope, assign.value);
                 if (@as(Type, value) != variable.*) {
+                    const start = assign.value.value(this.state).start;
                     this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
-                    this.state.srcLoc(assign.value.value(this.state).start, 1); // TODO: improve
+                    this.state.srcLoc(start, this.state.tokenLengthAt(start));
                     return error.Runtime;
                 }
 

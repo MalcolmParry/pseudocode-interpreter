@@ -34,7 +34,6 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                     const expression = try this.parseExpression(0);
 
                     return this.state.newStatement(.{
-                        .start = token.start,
                         .data = .{
                             .assign = .{
                                 .ident = ident,
@@ -57,9 +56,10 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             try this.state.expectToken(.ident, t);
 
             return this.state.newStatement(.{
-                .start = token.start,
                 .data = .{
                     .define = .{
+                        .ident_start = ident.start,
+                        .type_start = t.start,
                         .ident = ident.data.ident,
                         .t = t.data.ident,
                     },
@@ -70,7 +70,6 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             const expression = try this.parseExpression(0);
 
             return this.state.newStatement(.{
-                .start = token.start,
                 .data = .{
                     .output = expression,
                 },
@@ -216,7 +215,6 @@ pub const Expression = struct {
 };
 
 pub const Statement = struct {
-    start: u32,
     data: Data,
 
     pub const Data = union(enum) {
@@ -233,6 +231,8 @@ pub const Statement = struct {
     pub const Define = struct {
         ident: []const u8,
         t: []const u8,
+        ident_start: u32,
+        type_start: u32,
     };
 
     pub const Formatter = struct {
@@ -243,7 +243,7 @@ pub const Statement = struct {
             switch (this.this.value(this.state).data) {
                 .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .state = this.state, .this = assign.value } }),
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
-                .output => |output| try writer.print("ouput {f}", .{Expression.Formatter{ .state = this.state, .this = output }}),
+                .output => |output| try writer.print("output {f}", .{Expression.Formatter{ .state = this.state, .this = output }}),
             }
         }
     };
