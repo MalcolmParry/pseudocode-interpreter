@@ -1,4 +1,6 @@
-//var_name <- 25 - 3
+//DEFINE pi : REAL
 pi <- 3.141592653
+//OUTPUT pi
 
+//var_name <- 25 - 3
 //(2 + 3) * 4

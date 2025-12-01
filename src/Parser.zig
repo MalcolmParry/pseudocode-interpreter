@@ -7,7 +7,33 @@ const Parser = @This();
 lexer: *Lexer,
 expressions: std.ArrayList(Expression) = .{},
 statements: std.ArrayList(Statement) = .{},
+code_blocks: std.ArrayList(CodeBlock) = .{},
 alloc: std.mem.Allocator,
+
+pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !CodeBlock.Handle {
+    var statements: std.ArrayList(Statement.Handle) = .{};
+    errdefer statements.deinit(this.alloc);
+
+    while (this.lexer.peekToken().data != end) {
+        const next = try this.parseStatement();
+        std.log.info("{f}", .{Statement.Formatter{ .parser = this, .this = next }});
+        if (next.value(this).data == .err) {
+            statements.deinit(this.alloc);
+
+            return this.newCodeBlock(.{
+                .start = next.value(this).start,
+                .statements = &.{next},
+            });
+        }
+
+        try statements.append(this.alloc, next);
+    }
+
+    return this.newCodeBlock(.{
+        .start = start,
+        .statements = &.{},
+    });
+}
 
 pub fn parseStatement(this: *@This()) !Statement.Handle {
     const token = this.lexer.nextToken();
@@ -159,6 +185,11 @@ pub fn newStatement(this: *@This(), new: Statement) !Statement.Handle {
     return @enumFromInt(this.statements.items.len - 1);
 }
 
+pub fn newCodeBlock(this: *@This(), new: CodeBlock) !CodeBlock.Handle {
+    try this.code_blocks.append(this.alloc, new);
+    return @enumFromInt(this.code_blocks.items.len - 1);
+}
+
 const order_of_operation: [2][]const BinaryOp.Op = .{
     &.{
         .add,
@@ -265,6 +296,30 @@ pub const Statement = struct {
 
         pub fn value(handle: @This(), parser: *Parser) *Statement {
             return &parser.statements.items[@intFromEnum(handle)];
+        }
+    };
+};
+
+pub const CodeBlock = struct {
+    statements: []const Statement.Handle,
+    start: u32,
+
+    pub const Formatter = struct {
+        parser: *Parser,
+        this: Handle,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+            for (this.this.value(this.parser).statements) |statement| {
+                try writer.print("{f}\n", .{Statement.Formatter{ .parser = this.parser, .this = statement }});
+            }
+        }
+    };
+
+    pub const Handle = enum(u32) {
+        _,
+
+        pub fn value(handle: @This(), parser: *Parser) *CodeBlock {
+            return &parser.code_blocks.items[@intFromEnum(handle)];
         }
     };
 };

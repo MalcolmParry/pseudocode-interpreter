@@ -8,11 +8,11 @@ const src: []const u8 = @embedFile("example.pseudo");
 pub fn main() !void {
     var lexer = Lexer.init(src);
 
-    while (true) {
-        const token = lexer.nextToken();
-        std.log.info("{f}", .{token.data});
-        if (token.data == .eof) break;
-    }
+    // while (true) {
+    //     const token = lexer.nextToken();
+    //     std.log.info("{f}", .{token.data});
+    //     if (token.data == .eof) break;
+    // }
 
     lexer.index = 0;
     std.log.info("", .{});
@@ -23,8 +23,11 @@ pub fn main() !void {
         .lexer = &lexer,
     };
 
-    const statement = try parser.parseStatement();
-    std.log.info("{f}", .{Parser.Statement.Formatter{ .parser = &parser, .this = statement }});
+    const code_block = try parser.parseCodeBlock(.eof, 0);
+    std.log.info("{f}", .{Parser.CodeBlock.Formatter{ .parser = &parser, .this = code_block }});
+
+    // const statement = try parser.parseStatement();
+    // std.log.info("{f}", .{Parser.Statement.Formatter{ .parser = &parser, .this = statement }});
 
     // const expression = try parser.parseExpression(0);
     // std.log.info("{f}", .{Parser.Expression.Formatter{ .parser = &parser, .this = expression }});

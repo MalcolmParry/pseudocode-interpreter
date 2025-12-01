@@ -102,7 +102,7 @@ pub fn nextToken(this: *@This()) Token {
 
 pub fn parseNum(this: *@This()) Token {
     const start = this.index;
-    var radix: bool = false;
+    var radix_point: bool = false;
 
     while (true) {
         const maybe_c = this.peekChar(0);
@@ -111,7 +111,7 @@ pub fn parseNum(this: *@This()) Token {
         if (valid) {
             const c = maybe_c.?;
             if (c == '.') {
-                if (radix) {
+                if (radix_point) {
                     return .{
                         .start = start,
                         .data = .{
@@ -120,7 +120,7 @@ pub fn parseNum(this: *@This()) Token {
                     };
                 }
 
-                radix = true;
+                radix_point = true;
             }
 
             this.index += 1;
@@ -130,7 +130,7 @@ pub fn parseNum(this: *@This()) Token {
         const str = this.src[start..this.index];
         return .{
             .start = start,
-            .data = if (radix) .{
+            .data = if (radix_point) .{
                 .real = std.fmt.parseFloat(types.Real, str) catch |err| switch (err) {
                     error.InvalidCharacter => unreachable,
                 },
