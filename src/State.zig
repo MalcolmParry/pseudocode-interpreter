@@ -46,15 +46,22 @@ pub fn srcLoc(this: *@This(), start: u32, len: u32) void {
 pub fn expectToken(this: *@This(), expected: Lexer.Token.Data.Tag, got: Lexer.Token) !void {
     if (expected != got.data) {
         this.logErr("expected '{t}' got '{t}'", .{ expected, got.data });
-        this.srcLoc(got.start, 1); // TODO: add length
+        this.srcLoc(got.start, this.tokenLengthAt(got.start));
         return error.Parser;
     }
 }
 
 pub fn unexpectedToken(this: *@This(), got: Lexer.Token) error{Parser} {
     this.logErr("unexpected token '{t}'", .{got.data});
-    this.srcLoc(got.start, 1); // TODO: add length
+    this.srcLoc(got.start, this.tokenLengthAt(got.start));
     return error.Parser;
+}
+
+pub fn tokenLengthAt(this: *@This(), start: u32) u32 {
+    var lexer: Lexer = .{ .state = this, .index = start };
+    // token should have already been evaluated by the time this function is called
+    _ = lexer.nextTokenInternal() catch unreachable;
+    return lexer.index - start;
 }
 
 pub fn newExpression(this: *@This(), new: Parser.Expression) !Parser.Expression.Handle {

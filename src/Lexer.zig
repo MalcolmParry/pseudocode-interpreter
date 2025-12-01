@@ -5,18 +5,29 @@ const State = @import("State.zig");
 state: *State,
 index: u32 = 0,
 
-pub fn nextToken(this: *@This()) error{Lexer}!Token {
-    while (if (this.peekChar(0)) |c| std.ascii.isWhitespace(c) else false)
-        this.index += 1;
+pub fn nextToken(this: *@This()) !Token {
+    while (true) {
+        const token = try this.nextTokenInternal();
+        if (token.data != .whitespace) return token;
+    }
+}
 
-    const maybe_c = this.peekChar(0);
+pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
     const start = this.index;
-    const c = if (maybe_c) |c| c else return .{
+    const c = if (this.peekChar(0)) |c| c else return .{
         .start = @intCast(this.state.src.len - 1),
         .data = .eof,
     };
 
-    if (std.ascii.isDigit(c)) return this.parseNum();
+    if (std.ascii.isWhitespace(c)) {
+        while (if (this.peekChar(0)) |c2| std.ascii.isWhitespace(c2) else false) {
+            this.index += 1;
+        }
+
+        return .{ .start = start, .data = .whitespace };
+    }
+
+    if (std.ascii.isDigit(c)) return try this.parseNum();
     if (std.ascii.isAlphabetic(c) or c == '_') return this.parseIdentifier();
 
     const token: Token.Data = switch (c) {
@@ -24,15 +35,14 @@ pub fn nextToken(this: *@This()) error{Lexer}!Token {
         '+' => .add,
         '-' => .sub,
         '*' => .mul,
-        '/' => if (this.peekChar(1) == '/') {
+        '/' => if (this.peekChar(1) == '/') blk: {
             this.index += 2;
 
             while (this.peekChar(0) != '\n' and this.peekChar(0) != null) {
                 this.index += 1;
             }
 
-            this.index += 1;
-            return this.nextToken();
+            break :blk .whitespace;
         } else .div,
         '(' => .lparen,
         ')' => .rparen,
@@ -145,6 +155,7 @@ pub const Token = struct {
         pub const Tag = @typeInfo(@This()).@"union".tag_type.?;
 
         eof,
+        whitespace,
         ident: []const u8,
         // literal
         int: types.Int,
