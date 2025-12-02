@@ -51,6 +51,7 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
         } else .less,
         '>' => .more,
         ',' => .comma,
+        '\"' => return this.parseString(),
         else => {
             this.state.logErr("unexpected character '{c}'", .{c});
             this.state.srcLoc(start, 1);
@@ -110,6 +111,67 @@ pub fn parseNum(this: *@This()) error{Lexer}!Token {
     }
 }
 
+pub fn parseString(this: *@This()) !Token {
+    const start = this.index;
+    var len: u32 = 0;
+    this.index += 1;
+
+    while (true) {
+        const valid = if (this.peekChar(0)) |c| blk: {
+            if (c == '\n') break :blk false;
+            break :blk true;
+        } else false;
+
+        if (!valid) {
+            this.state.logErr("expected closing '\"'", .{});
+            this.state.srcLoc(this.index - 1, 1);
+            return error.Lexer;
+        }
+
+        const c = this.peekChar(0).?;
+        if (c == '"') break;
+
+        len += 1;
+        this.index += 1;
+    }
+
+    this.index += 1;
+    return .{
+        .start = start,
+        .data = .str,
+    };
+}
+
+/// assumes no errors as parseString should have already been called
+pub fn getStringAt(state: *State, start: u32) error{OutOfMemory}![]u8 {
+    var this: @This() = .{
+        .state = state,
+        .index = start,
+    };
+
+    var len: u32 = 0;
+    this.index += 1;
+
+    while (true) {
+        const c = this.peekChar(0).?;
+        if (c == '"') break;
+
+        len += 1;
+        this.index += 1;
+    }
+
+    const str = try this.state.alloc.alloc(u8, len);
+    errdefer this.state.alloc.free(str);
+
+    const full_len = this.index - start;
+    for (0..full_len - 1, this.state.src[start + 1 .. start + full_len]) |i, c| {
+        str[i] = c;
+    }
+
+    this.index += 1;
+    return str;
+}
+
 pub fn parseIdentifier(this: *@This()) Token {
     const start = this.index;
 
@@ -160,6 +222,7 @@ pub const Token = struct {
         // literal
         int: State.types.Int,
         real: State.types.Real,
+        str,
         // bin op
         add,
         sub,

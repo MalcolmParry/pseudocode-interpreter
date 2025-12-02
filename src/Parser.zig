@@ -142,7 +142,10 @@ pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expressi
 
             return expression;
         },
-        .int, .real, .ident => .{ .lit = token.data },
+        .int => |int| .{ .int = int },
+        .real => |real| .{ .real = real },
+        .ident => |ident| .{ .ident = ident },
+        .str => .{ .str = .{ .start = token.start } },
         else => return this.state.unexpectedToken(token),
     };
 
@@ -194,7 +197,12 @@ pub const Expression = struct {
     data: Data,
 
     pub const Data = union(enum) {
-        lit: Lexer.Token.Data,
+        ident: []const u8,
+        int: State.types.Int,
+        real: State.types.Real,
+        str: struct {
+            start: u32,
+        },
         neg: Expression.Handle,
         bin: BinaryOp,
     };
@@ -205,7 +213,14 @@ pub const Expression = struct {
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this.this.value(this.state).data) {
-                .lit => |lit| try writer.print("{f}", .{lit}),
+                .int => |int| try writer.print("{}", .{int}),
+                .real => |real| try writer.print("{}f", .{real}),
+                .str => |str| {
+                    const message = Lexer.getStringAt(this.state, str.start) catch return error.WriteFailed;
+                    defer this.state.alloc.free(message);
+                    try writer.print("'{s}'", .{message});
+                },
+                .ident => |ident| try writer.print("@'{s}'", .{ident}),
                 .neg => |neg| try writer.print("-{f}", .{Formatter{ .state = this.state, .this = neg }}),
                 .bin => |bin| try writer.print("({f} {c} {f})", .{
                     Formatter{ .state = this.state, .this = bin.left },

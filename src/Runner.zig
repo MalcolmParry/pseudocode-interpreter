@@ -1,6 +1,7 @@
 const std = @import("std");
 const State = @import("State.zig");
 const Parser = @import("Parser.zig");
+const Lexer = @import("Lexer.zig");
 
 const Runner = @This();
 
@@ -48,7 +49,8 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                     return error.Runtime;
                 }
 
-                variable.* = value;
+                variable.deinit(this.state);
+                variable.* = try value.copy(this.state);
             },
             .output => |output| {
                 for (output.items) |expression| {
@@ -66,15 +68,18 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
     const expression = expression_handle.value(this.state);
 
     return switch (expression.data) {
-        .lit => |lit| switch (lit) {
-            .int => |int| .{ .int = int },
-            .real => |real| .{ .real = real },
-            .ident => |ident| if (scope.getVariable(ident)) |val| val.* else {
-                this.state.logErr("variable '{s}' not defined", .{ident});
-                this.state.srcLoc(expression.start, @intCast(ident.len));
-                return error.Runtime;
-            },
-            else => unreachable,
+        .int => |int| .{ .int = int },
+        .real => |real| .{ .real = real },
+        .ident => |ident| if (scope.getVariable(ident)) |val| val.* else {
+            this.state.logErr("variable '{s}' not defined", .{ident});
+            this.state.srcLoc(expression.start, @intCast(ident.len));
+            return error.Runtime;
+        },
+        .str => |str| {
+            const message = try Lexer.getStringAt(this.state, str.start);
+            errdefer this.state.alloc.free(message);
+
+            return .{ .str = message };
         },
         else => unreachable, // temporary
     };
@@ -90,6 +95,7 @@ pub const Type = enum {
     undef,
     int,
     real,
+    str,
     t,
 
     pub fn default(t: Type) Value {
@@ -97,6 +103,7 @@ pub const Type = enum {
             .undef => @panic("undef should only be used for internal stuff. a variable should never have type undef when facing the user"),
             .int => .{ .int = 0 },
             .real => .{ .real = 0 },
+            .str => .{ .str = &.{} },
             .t => @panic("no default type"),
         };
     }
@@ -106,12 +113,28 @@ pub const Value = union(Type) {
     undef: void,
     int: State.types.Int,
     real: State.types.Real,
+    str: []u8,
     t: Type,
+
+    pub fn deinit(this: @This(), state: *State) void {
+        switch (this) {
+            .str => |str| state.alloc.free(str),
+            else => {},
+        }
+    }
+
+    pub fn copy(this: @This(), state: *State) !@This() {
+        switch (this) {
+            .str => |str| return .{ .str = try state.alloc.dupe(u8, str) },
+            else => return this,
+        }
+    }
 
     pub fn format(this: @This(), writer: *std.Io.Writer) !void {
         switch (this) {
             .int => |int| try writer.print("{}", .{int}),
             .real => |real| try writer.print("{}", .{real}),
+            .str => |str| try writer.print("{s}", .{str}),
             else => try writer.print("{s}", .{@tagName(this)}),
         }
     }

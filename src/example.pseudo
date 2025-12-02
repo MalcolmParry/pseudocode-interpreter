@@ -5,7 +5,7 @@
 //var_name <- 25 - 3
 //(2 + 3) * 4
 
-OUTPUT 5, 3
+OUTPUT 5, ", ", 3
 
 //DECLARE Total : INTEGER
 //DECLARE Number : INTEGER 
