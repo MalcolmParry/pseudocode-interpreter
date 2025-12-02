@@ -7,7 +7,7 @@ const Runner = @This();
 state: *State,
 parser: *Parser,
 
-pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime }!void {
+pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime, WriteFailed }!void {
     var scope: Scope = .{
         .variables = .empty,
         .parent = parent_scope,
@@ -51,8 +51,12 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                 variable.* = value;
             },
             .output => |output| {
-                const value = try this.evalExpression(&scope, output);
-                std.log.scoped(.pseudo).info("{f}", .{value});
+                for (output.items) |expression| {
+                    const value = try this.evalExpression(&scope, expression);
+                    try this.state.out_writer.print("{f}", .{value});
+                }
+                try this.state.out_writer.print("\n", .{});
+                try this.state.out_writer.flush();
             },
         }
     }
@@ -106,6 +110,8 @@ pub const Value = union(Type) {
 
     pub fn format(this: @This(), writer: *std.Io.Writer) !void {
         switch (this) {
+            .int => |int| try writer.print("{}", .{int}),
+            .real => |real| try writer.print("{}", .{real}),
             else => try writer.print("{s}", .{@tagName(this)}),
         }
     }

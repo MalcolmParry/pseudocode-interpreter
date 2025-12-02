@@ -50,6 +50,7 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
             break :blk .assign;
         } else .less,
         '>' => .more,
+        ',' => .comma,
         else => {
             this.state.logErr("unexpected character '{c}'", .{c});
             this.state.srcLoc(start, 1);
@@ -123,7 +124,7 @@ pub fn parseIdentifier(this: *@This()) Token {
 
         const str = this.state.src[start..this.index];
         const data: Token.Data = blk: {
-            if (std.mem.eql(u8, str, "DEFINE")) break :blk .define;
+            if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
             if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
 
             break :blk .{ .ident = str };
@@ -168,11 +169,12 @@ pub const Token = struct {
         more,
         // symbol
         assign,
+        comma,
         colon,
         lparen,
         rparen,
         // keyword
-        define,
+        declare,
         output,
 
         pub fn isLiteral(tag: Tag) bool {

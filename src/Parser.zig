@@ -45,7 +45,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 else => return this.state.unexpectedToken(token2),
             }
         },
-        .define => {
+        .declare => {
             const ident = try this.lexer.nextToken();
             try this.state.expectToken(.ident, ident);
 
@@ -67,15 +67,26 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             });
         },
         .output => {
-            const expression = try this.parseExpression(0);
+            const expression_list = try this.parseExpressionList();
 
             return this.state.newStatement(.{
                 .data = .{
-                    .output = expression,
+                    .output = expression_list,
                 },
             });
         },
         else => return this.state.unexpectedToken(token),
+    }
+}
+
+pub fn parseExpressionList(this: *@This()) !std.ArrayList(Expression.Handle) {
+    var result: std.ArrayList(Expression.Handle) = .empty;
+
+    while (true) {
+        try result.append(this.state.alloc, try this.parseExpression(0));
+
+        if ((try this.lexer.peekToken()).data != .comma) return result;
+        _ = this.lexer.nextToken() catch unreachable;
     }
 }
 
@@ -205,6 +216,18 @@ pub const Expression = struct {
         }
     };
 
+    pub const ListFormatter = struct {
+        state: *State,
+        this: std.ArrayList(Handle),
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) !void {
+            for (this.this.items, 0..) |expression, i| {
+                if (i != 0) try writer.print(", ", .{});
+                try writer.print("{f}", .{Formatter{ .state = this.state, .this = expression }});
+            }
+        }
+    };
+
     pub const Handle = enum(u32) {
         _,
 
@@ -220,7 +243,7 @@ pub const Statement = struct {
     pub const Data = union(enum) {
         assign: Assign,
         define: Define,
-        output: Expression.Handle,
+        output: std.ArrayList(Expression.Handle),
     };
 
     pub const Assign = struct {
@@ -243,7 +266,7 @@ pub const Statement = struct {
             switch (this.this.value(this.state).data) {
                 .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .state = this.state, .this = assign.value } }),
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
-                .output => |output| try writer.print("output {f}", .{Expression.Formatter{ .state = this.state, .this = output }}),
+                .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
             }
         }
     };

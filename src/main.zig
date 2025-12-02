@@ -12,7 +12,7 @@ pub fn main() !void {
     const err_writer = std.debug.lockStderrWriter(&err_buffer);
     defer std.debug.unlockStderrWriter();
 
-    var state: State = .{ .alloc = alloc, .src = src, .err_writer = err_writer };
+    var state: State = .{ .alloc = alloc, .src = src, .err_writer = err_writer, .out_writer = err_writer };
     var lexer: Lexer = .{ .state = &state };
 
     try state.err_writer.print("=== TOKENS ===\n", .{});

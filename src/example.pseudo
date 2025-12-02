@@ -1,6 +1,25 @@
-DEFINE pi : REAL
-pi <- 3.141592653
-OUTPUT pi// * 2
+//DEFINE pi : REAL
+//pi <- 3.141592653
+//OUTPUT pi// * 2
 
 //var_name <- 25 - 3
 //(2 + 3) * 4
+
+OUTPUT 5, 3
+
+//DECLARE Total : INTEGER
+//DECLARE Number : INTEGER 
+//total <- 0
+//OUTPUT "how many numbers"
+//INPUT Number
+//
+//FOR Counter <- 1 TO Number
+//	DECLARE X : INTEGER
+//	OUTPUT "Enter Value"
+//	INPUT X
+//	Total <- Total + X
+//NEXT Counter
+//
+//DECLARE Average : Real
+//Average <- Total / Number
+//OUTPUT Average
