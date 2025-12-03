@@ -117,7 +117,13 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
 
             return .{ .str = message };
         },
-        else => unreachable, // temporary
+        .neg => |neg| try (try evalExpression(this, scope, neg)).neg(this.state),
+        .bin => |bin| return Value.binOp(
+            try evalExpression(this, scope, bin.left),
+            try evalExpression(this, scope, bin.right),
+            bin.op,
+            this.state,
+        ),
     };
 }
 
@@ -164,6 +170,73 @@ pub const Value = union(Type) {
             .str => |str| return .{ .str = try state.alloc.dupe(u8, str) },
             else => return this,
         }
+    }
+
+    pub fn neg(this: @This(), state: *State) !@This() {
+        switch (this) {
+            .int => |int| return .{ .int = -int },
+            .real => |real| return .{ .real = -real },
+            else => {
+                state.logErr("cannot negate type '{t}'", .{this});
+                return error.Runtime;
+            },
+        }
+    }
+
+    pub fn binOp(left: @This(), right: @This(), op: Parser.BinaryOp.Op, state: *State) !@This() {
+        switch (op) {
+            .add, .sub, .mul => {
+                try assertNumeric(left, state);
+                try assertNumeric(right, state);
+
+                const new_left = if (right == .real) try left.coerceType(state, .real) else left;
+                const new_right = if (left == .real) try right.coerceType(state, .real) else right;
+
+                return switch (op) {
+                    .add => if (new_left == .int) .{ .int = new_left.int + new_right.int } else .{ .real = new_left.real + new_right.real },
+                    .sub => if (new_left == .int) .{ .int = new_left.int - new_right.int } else .{ .real = new_left.real - new_right.real },
+                    .mul => if (new_left == .int) .{ .int = new_left.int * new_right.int } else .{ .real = new_left.real * new_right.real },
+                    else => unreachable,
+                };
+            },
+            .div => {
+                const new_left = try left.coerceType(state, .real);
+                const new_right = try right.coerceType(state, .real);
+
+                return .{ .real = new_left.real / new_right.real };
+            },
+        }
+    }
+
+    pub fn assertNumeric(this: @This(), state: *State) !void {
+        switch (this) {
+            .int, .real => return,
+            else => {
+                state.logErr("expected numeric type", .{});
+                return error.Runtime;
+            },
+        }
+    }
+
+    pub fn coerceType(this: @This(), state: *State, t: Type) !@This() {
+        if (this == t) return this.copy(state);
+
+        switch (t) {
+            .int => switch (this) {
+                .int => unreachable,
+                .real => |real| return .{ .int = @intFromFloat(real) },
+                else => {},
+            },
+            .real => switch (this) {
+                .real => unreachable,
+                .int => |int| return .{ .real = @floatFromInt(int) },
+                else => {},
+            },
+            else => {},
+        }
+
+        state.logErr("cannot coerce type '{t}' to '{t}'", .{ this, t });
+        return error.Runtime;
     }
 
     pub fn format(this: @This(), writer: *std.Io.Writer) !void {

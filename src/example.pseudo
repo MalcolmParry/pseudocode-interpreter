@@ -8,7 +8,7 @@ DECLARE Number : INTEGER
 Total <- 0
 OUTPUT "how many numbers"
 INPUT Number
-OUTPUT Number
+OUTPUT Number * 2
 
 //FOR Counter <- 1 TO Number
 //	DECLARE X : INTEGER
