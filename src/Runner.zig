@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const State = @import("State.zig");
 const Parser = @import("Parser.zig");
 const Lexer = @import("Lexer.zig");
@@ -69,9 +70,13 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                 var line_buffer: [256]u8 = undefined;
                 var line_writer: std.Io.Writer = .fixed(&line_buffer);
 
-                const len = try this.state.in_reader.streamDelimiterLimit(&line_writer, '\n', .limited(line_buffer.len));
-                const line = line_buffer[0..len];
+                var len = try this.state.in_reader.streamDelimiterLimit(&line_writer, '\n', .limited(line_buffer.len));
 
+                if (builtin.os.tag == .windows) {
+                    if (len > 0 and line_buffer[len - 1] == '\r') len -= 1;
+                }
+
+                const line = line_buffer[0..len];
                 const value: Value = switch (variable.*) {
                     .int => .{ .int = std.fmt.parseInt(State.types.Int, line, 0) catch |err| {
                         this.state.logErr("{t}", .{err});
