@@ -7,7 +7,7 @@ const Parser = @This();
 state: *State,
 lexer: *Lexer,
 
-pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !CodeBlock.Handle {
+pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag) error{ Lexer, Parser, OutOfMemory }!CodeBlock.Handle {
     var statements: std.ArrayList(Statement.Handle) = .{};
     errdefer statements.deinit(this.state.alloc);
 
@@ -17,7 +17,6 @@ pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag, start: u32) !Co
     }
 
     return this.state.newCodeBlock(.{
-        .start = start,
         .statements = statements.items,
     });
 }
@@ -82,6 +81,38 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             return this.state.newStatement(.{
                 .data = .{
                     .input = .{ .ident = ident.data.ident },
+                },
+            });
+        },
+        .@"for" => {
+            const assign = try this.parseStatement();
+            if (assign.value(this.state).data != .assign) {
+                this.state.logErr("expected assign statement", .{});
+                return error.Parser;
+            }
+
+            const to = try this.lexer.nextToken();
+            try this.state.expectToken(.to, to);
+
+            const expression = try this.parseExpression(0);
+            const block = try this.parseCodeBlock(.next);
+            _ = this.lexer.nextToken() catch unreachable;
+
+            const var_name = try this.lexer.nextToken();
+            try this.state.expectToken(.ident, var_name);
+
+            if (!std.mem.eql(u8, assign.value(this.state).data.assign.ident, var_name.data.ident)) {
+                this.state.logErr("both identifiers to counter variable must be the same", .{});
+                return error.Parser;
+            }
+
+            return this.state.newStatement(.{
+                .data = .{
+                    .@"for" = .{
+                        .assign = assign,
+                        .limit = expression,
+                        .block = block,
+                    },
                 },
             });
         },
@@ -270,6 +301,7 @@ pub const Statement = struct {
         define: Define,
         output: std.ArrayList(Expression.Handle),
         input: Input,
+        @"for": For,
     };
 
     pub const Input = struct {
@@ -288,6 +320,12 @@ pub const Statement = struct {
         type_start: u32,
     };
 
+    pub const For = struct {
+        assign: Handle,
+        limit: Expression.Handle,
+        block: CodeBlock.Handle,
+    };
+
     pub const Formatter = struct {
         state: *State,
         this: Handle,
@@ -298,6 +336,11 @@ pub const Statement = struct {
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
                 .input => |input| try writer.print("input to @'{s}'", .{input.ident}),
+                .@"for" => |@"for"| try writer.print("for {{{f}}} to {f}\n{f}", .{
+                    Formatter{ .state = this.state, .this = @"for".assign },
+                    Expression.Formatter{ .state = this.state, .this = @"for".limit },
+                    CodeBlock.Formatter{ .state = this.state, .this = @"for".block, .indent = 1 },
+                }),
             }
         }
     };
@@ -313,14 +356,16 @@ pub const Statement = struct {
 
 pub const CodeBlock = struct {
     statements: []const Statement.Handle,
-    start: u32,
 
     pub const Formatter = struct {
         state: *State,
         this: Handle,
+        indent: u32 = 0,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             for (this.this.value(this.state).statements) |statement| {
+                for (0..this.indent) |_| try writer.print("    ", .{});
+
                 try writer.print("{f}\n", .{Statement.Formatter{ .state = this.state, .this = statement }});
             }
         }

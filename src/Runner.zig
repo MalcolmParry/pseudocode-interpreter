@@ -5,98 +5,125 @@ const Parser = @import("Parser.zig");
 const Lexer = @import("Lexer.zig");
 
 const Runner = @This();
+const Error = error{ OutOfMemory, Runtime, WriteFailed, ReadFailed, StreamTooLong, EndOfStream };
 
 state: *State,
 parser: *Parser,
 
-pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime, WriteFailed, ReadFailed, StreamTooLong }!void {
+pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) !void {
     var scope: Scope = .{
         .variables = .empty,
         .parent = parent_scope,
     };
 
     for (block.value(this.state).statements) |statement_handle| {
-        const statement = statement_handle.value(this.state);
+        try runStatement(this, &scope, statement_handle);
+    }
+}
 
-        switch (statement.data) {
-            .define => |define| {
-                if (scope.variables.contains(define.ident)) {
-                    this.state.logErr("variable '{s}' already defined", .{define.ident});
-                    this.state.srcLoc(define.ident_start, this.state.tokenLengthAt(define.ident_start));
+pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Statement.Handle) Error!void {
+    const statement = statement_handle.value(this.state);
+
+    switch (statement.data) {
+        .define => |define| {
+            if (scope.variables.contains(define.ident)) {
+                this.state.logErr("variable '{s}' already defined", .{define.ident});
+                this.state.srcLoc(define.ident_start, this.state.tokenLengthAt(define.ident_start));
+                return error.Runtime;
+            }
+
+            const t_var = if (scope.getVariable(define.t)) |t_var| t_var else {
+                this.state.logErr("type '{s}' not defined", .{define.t});
+                this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                return error.Runtime;
+            };
+
+            const t = if (t_var.* == .t) t_var.t else {
+                this.state.logErr("expected 'type' got '{t}'", .{t_var.*});
+                this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                return error.Runtime;
+            };
+
+            try scope.variables.put(this.state.alloc, define.ident, t.default());
+        },
+        .assign => |assign| {
+            const variable = try scope.getOrCreateVariable(this, assign.ident);
+            const value = try this.evalExpression(scope, assign.value);
+            if (@as(Type, value) != variable.* and variable.* != .undef) {
+                const start = assign.value.value(this.state).start;
+                this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
+                this.state.srcLoc(start, this.state.tokenLengthAt(start));
+                return error.Runtime;
+            }
+
+            variable.deinit(this.state);
+            variable.* = try value.copy(this.state);
+        },
+        .output => |output| {
+            for (output.items) |expression| {
+                const value = try this.evalExpression(scope, expression);
+                try this.state.out_writer.print("{f}", .{value});
+            }
+            try this.state.out_writer.print("\n", .{});
+            try this.state.out_writer.flush();
+        },
+        .input => |input| {
+            const variable = if (scope.getVariable(input.ident)) |x| x else {
+                this.state.logErr("variable '{s}' not defined", .{input.ident});
+                return error.Runtime;
+            };
+
+            var line_buffer: [256]u8 = undefined;
+            var line_writer: std.Io.Writer = .fixed(&line_buffer);
+
+            var len = try this.state.in_reader.streamDelimiterLimit(&line_writer, '\n', .limited(line_buffer.len));
+            try this.state.in_reader.discardAll(1);
+
+            if (builtin.os.tag == .windows) {
+                if (len > 0 and line_buffer[len - 1] == '\r') len -= 1;
+            }
+
+            const line = line_buffer[0..len];
+            const value: Value = switch (variable.*) {
+                .int => .{ .int = std.fmt.parseInt(State.types.Int, line, 0) catch |err| {
+                    this.state.logErr("{t}", .{err});
                     return error.Runtime;
-                }
-
-                const t_var = if (scope.getVariable(define.t)) |t_var| t_var else {
-                    this.state.logErr("type '{s}' not defined", .{define.t});
-                    this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                } },
+                .real => .{ .real = std.fmt.parseFloat(State.types.Real, line) catch |err| {
+                    this.state.logErr("{t}", .{err});
                     return error.Runtime;
-                };
-
-                const t = if (t_var.* == .t) t_var.t else {
-                    this.state.logErr("expected 'type' got '{t}'", .{t_var.*});
-                    this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                } },
+                .str => .{ .str = line },
+                else => {
+                    this.state.logErr("cant input to type '{t}'", .{variable.*});
                     return error.Runtime;
-                };
+                },
+            };
 
-                try scope.variables.put(this.state.alloc, define.ident, t.default());
-            },
-            .assign => |assign| {
-                const variable = try scope.getOrCreateVariable(this, assign.ident);
-                const value = try this.evalExpression(&scope, assign.value);
-                if (@as(Type, value) != variable.*) {
-                    const start = assign.value.value(this.state).start;
-                    this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
-                    this.state.srcLoc(start, this.state.tokenLengthAt(start));
-                    return error.Runtime;
-                }
+            variable.deinit(this.state);
+            variable.* = try value.copy(this.state);
+        },
+        .@"for" => |@"for"| {
+            // TODO: allow for non int counters
+            var new_scope: Scope = .{
+                .parent = scope,
+                .variables = .empty,
+            };
 
-                variable.deinit(this.state);
-                variable.* = try value.copy(this.state);
-            },
-            .output => |output| {
-                for (output.items) |expression| {
-                    const value = try this.evalExpression(&scope, expression);
-                    try this.state.out_writer.print("{f}", .{value});
-                }
-                try this.state.out_writer.print("\n", .{});
-                try this.state.out_writer.flush();
-            },
-            .input => |input| {
-                const variable = if (scope.getVariable(input.ident)) |x| x else {
-                    this.state.logErr("variable '{s}' not defined", .{input.ident});
-                    return error.Runtime;
-                };
+            try runStatement(this, &new_scope, @"for".assign);
+            const variable = new_scope.getVariable(@"for".assign.value(this.state).data.assign.ident) orelse unreachable;
+            const limit = try evalExpression(this, &new_scope, @"for".limit);
+            const int_limit = (try limit.coerceType(this.state, .int)).int;
 
-                var line_buffer: [256]u8 = undefined;
-                var line_writer: std.Io.Writer = .fixed(&line_buffer);
+            while (true) {
+                const as_int = (try variable.coerceType(this.state, .int)).int;
+                if (as_int > int_limit) break;
 
-                var len = try this.state.in_reader.streamDelimiterLimit(&line_writer, '\n', .limited(line_buffer.len));
+                try runCodeBlock(this, @"for".block, &new_scope);
 
-                if (builtin.os.tag == .windows) {
-                    if (len > 0 and line_buffer[len - 1] == '\r') len -= 1;
-                }
-
-                const line = line_buffer[0..len];
-                const value: Value = switch (variable.*) {
-                    .int => .{ .int = std.fmt.parseInt(State.types.Int, line, 0) catch |err| {
-                        this.state.logErr("{t}", .{err});
-                        return error.Runtime;
-                    } },
-                    .real => .{ .real = std.fmt.parseFloat(State.types.Real, line) catch |err| {
-                        this.state.logErr("{t}", .{err});
-                        return error.Runtime;
-                    } },
-                    .str => .{ .str = line },
-                    else => {
-                        this.state.logErr("cant input to type '{t}'", .{variable.*});
-                        return error.Runtime;
-                    },
-                };
-
-                variable.deinit(this.state);
-                variable.* = try value.copy(this.state);
-            },
-        }
+                variable.* = .{ .int = as_int + 1 };
+            }
+        },
     }
 }
 

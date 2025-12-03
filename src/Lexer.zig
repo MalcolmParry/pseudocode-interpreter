@@ -189,6 +189,9 @@ pub fn parseIdentifier(this: *@This()) Token {
             if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
             if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
             if (std.mem.eql(u8, str, "INPUT")) break :blk .input;
+            if (std.mem.eql(u8, str, "FOR")) break :blk .@"for";
+            if (std.mem.eql(u8, str, "TO")) break :blk .to;
+            if (std.mem.eql(u8, str, "NEXT")) break :blk .next;
 
             break :blk .{ .ident = str };
         };
@@ -241,6 +244,9 @@ pub const Token = struct {
         declare,
         output,
         input,
+        @"for",
+        to,
+        next,
 
         pub fn isLiteral(tag: Tag) bool {
             return switch (tag) {

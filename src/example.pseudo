@@ -8,15 +8,14 @@ DECLARE Number : INTEGER
 Total <- 0
 OUTPUT "how many numbers"
 INPUT Number
-OUTPUT Number * 2
 
-//FOR Counter <- 1 TO Number
-//	DECLARE X : INTEGER
-//	OUTPUT "Enter Value"
-//	INPUT X
-//	Total <- Total + X
-//NEXT Counter
-//
-//DECLARE Average : Real
-//Average <- Total / Number
-//OUTPUT Average
+FOR Counter <- 1 TO Number
+	DECLARE X : INTEGER
+	OUTPUT "Enter Value"
+	INPUT X
+	Total <- Total + X
+NEXT Counter
+
+DECLARE Average : REAL 
+Average <- Total / Number
+OUTPUT Average
