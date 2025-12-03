@@ -5,6 +5,7 @@ const Parser = @import("Parser.zig");
 alloc: std.mem.Allocator,
 err_writer: *std.Io.Writer,
 out_writer: *std.Io.Writer,
+in_reader: *std.Io.Reader,
 src: []const u8,
 expressions: std.ArrayList(Parser.Expression) = .{},
 statements: std.ArrayList(Parser.Statement) = .{},

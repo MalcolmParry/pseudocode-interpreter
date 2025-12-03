@@ -8,7 +8,7 @@ const Runner = @This();
 state: *State,
 parser: *Parser,
 
-pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime, WriteFailed }!void {
+pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope: ?*Scope) error{ OutOfMemory, Runtime, WriteFailed, ReadFailed, StreamTooLong }!void {
     var scope: Scope = .{
         .variables = .empty,
         .parent = parent_scope,
@@ -59,6 +59,37 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
                 }
                 try this.state.out_writer.print("\n", .{});
                 try this.state.out_writer.flush();
+            },
+            .input => |input| {
+                const variable = if (scope.getVariable(input.ident)) |x| x else {
+                    this.state.logErr("variable '{s}' not defined", .{input.ident});
+                    return error.Runtime;
+                };
+
+                var line_buffer: [256]u8 = undefined;
+                var line_writer: std.Io.Writer = .fixed(&line_buffer);
+
+                const len = try this.state.in_reader.streamDelimiterLimit(&line_writer, '\n', .limited(line_buffer.len));
+                const line = line_buffer[0..len];
+
+                const value: Value = switch (variable.*) {
+                    .int => .{ .int = std.fmt.parseInt(State.types.Int, line, 0) catch |err| {
+                        this.state.logErr("{t}", .{err});
+                        return error.Runtime;
+                    } },
+                    .real => .{ .real = std.fmt.parseFloat(State.types.Real, line) catch |err| {
+                        this.state.logErr("{t}", .{err});
+                        return error.Runtime;
+                    } },
+                    .str => .{ .str = line },
+                    else => {
+                        this.state.logErr("cant input to type '{t}'", .{variable.*});
+                        return error.Runtime;
+                    },
+                };
+
+                variable.deinit(this.state);
+                variable.* = try value.copy(this.state);
             },
         }
     }

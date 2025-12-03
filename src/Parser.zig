@@ -75,6 +75,16 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 },
             });
         },
+        .input => {
+            const ident = try this.lexer.nextToken();
+            try this.state.expectToken(.ident, ident);
+
+            return this.state.newStatement(.{
+                .data = .{
+                    .input = .{ .ident = ident.data.ident },
+                },
+            });
+        },
         else => return this.state.unexpectedToken(token),
     }
 }
@@ -259,6 +269,11 @@ pub const Statement = struct {
         assign: Assign,
         define: Define,
         output: std.ArrayList(Expression.Handle),
+        input: Input,
+    };
+
+    pub const Input = struct {
+        ident: []const u8,
     };
 
     pub const Assign = struct {
@@ -282,6 +297,7 @@ pub const Statement = struct {
                 .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .state = this.state, .this = assign.value } }),
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
+                .input => |input| try writer.print("input to @'{s}'", .{input.ident}),
             }
         }
     };

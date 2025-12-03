@@ -188,6 +188,7 @@ pub fn parseIdentifier(this: *@This()) Token {
         const data: Token.Data = blk: {
             if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
             if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
+            if (std.mem.eql(u8, str, "INPUT")) break :blk .input;
 
             break :blk .{ .ident = str };
         };
@@ -239,6 +240,7 @@ pub const Token = struct {
         // keyword
         declare,
         output,
+        input,
 
         pub fn isLiteral(tag: Tag) bool {
             return switch (tag) {

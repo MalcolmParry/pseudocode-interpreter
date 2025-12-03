@@ -11,8 +11,17 @@ pub fn main() !void {
     var err_buffer: [64]u8 = undefined;
     const err_writer = std.debug.lockStderrWriter(&err_buffer);
     defer std.debug.unlockStderrWriter();
+    var in_buffer: [256]u8 = undefined;
+    var in_reader = std.fs.File.stdin().reader(&in_buffer);
 
-    var state: State = .{ .alloc = alloc, .src = src, .err_writer = err_writer, .out_writer = err_writer };
+    var state: State = .{
+        .alloc = alloc,
+        .src = src,
+        .err_writer = err_writer,
+        .out_writer = err_writer,
+        .in_reader = &in_reader.interface,
+    };
+
     var lexer: Lexer = .{ .state = &state };
 
     try state.err_writer.print("=== TOKENS ===\n", .{});
