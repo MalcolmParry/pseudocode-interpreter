@@ -5,7 +5,7 @@ const Parser = @import("Parser.zig");
 const Lexer = @import("Lexer.zig");
 
 const Runner = @This();
-const Error = error{ OutOfMemory, Runtime, WriteFailed, ReadFailed, StreamTooLong, EndOfStream };
+const Error = error{ OutOfMemory, Runtime, WriteFailed, ReadFailed, StreamTooLong, EndOfStream, Overflow };
 
 state: *State,
 parser: *Parser,
@@ -26,38 +26,37 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
 
     switch (statement.data) {
         .define => |define| {
-            const ident = Lexer.getIdentAt(this.state, define.ident_start);
-            const t_name = Lexer.getIdentAt(this.state, define.type_start);
+            const ident = define.ident_loc.getIdent(this.state);
+            const t_name = define.type_loc.getIdent(this.state);
 
             if (scope.variables.contains(ident)) {
                 this.state.logErr("variable '{s}' already defined", .{ident});
-                this.state.srcLoc(define.ident_start, this.state.tokenLengthAt(define.ident_start));
+                define.ident_loc.printToken(this.state);
                 return error.Runtime;
             }
 
             const t_var = if (scope.getVariable(t_name)) |t_var| t_var else {
                 this.state.logErr("type '{s}' not defined", .{t_name});
-                this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                define.type_loc.printToken(this.state);
                 return error.Runtime;
             };
 
             const t = if (t_var.* == .t) t_var.t else {
                 this.state.logErr("expected 'type' got '{t}'", .{t_var.*});
-                this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
+                define.type_loc.printToken(this.state);
                 return error.Runtime;
             };
 
             try scope.variables.put(this.state.alloc, ident, t.default());
         },
         .assign => |assign| {
-            const ident = Lexer.getIdentAt(this.state, assign.ident_start);
+            const ident = assign.ident_loc.getIdent(this.state);
             const variable = try scope.getOrCreateVariable(this, ident);
             const value = try this.evalExpression(scope, assign.value);
 
             if (@as(Type, value) != variable.* and variable.* != .undef) {
-                const start = assign.value.value(this.state).start;
                 this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
-                this.state.srcLoc(start, this.state.tokenLengthAt(start));
+                assign.value.value(this.state).src_slice.printWithUnderline(this.state);
                 return error.Runtime;
             }
 
@@ -73,7 +72,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             try this.state.out_writer.flush();
         },
         .input => |input| {
-            const ident = Lexer.getIdentAt(this.state, input.ident_start);
+            const ident = input.ident_loc.getIdent(this.state);
             const variable = if (scope.getVariable(ident)) |x| x else {
                 this.state.logErr("variable '{s}' not defined", .{ident});
                 return error.Runtime;
@@ -116,7 +115,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                 .variables = .empty,
             };
 
-            const ident = Lexer.getIdentAt(this.state, for_loop.assign.value(this.state).data.assign.ident_start);
+            const ident = for_loop.assign.value(this.state).data.assign.ident_loc.getIdent(this.state);
             try runStatement(this, &new_scope, for_loop.assign);
             const variable = new_scope.getVariable(ident) orelse unreachable;
             const limit = try evalExpression(this, &new_scope, for_loop.limit);
@@ -136,17 +135,24 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
 
 pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.Expression.Handle) !Value {
     const expression = expression_handle.value(this.state);
+    const loc = expression.src_slice.loc();
 
     return switch (expression.data) {
-        .int => |int| .{ .int = int },
-        .real => |real| .{ .real = real },
-        .ident => |ident| if (scope.getVariable(ident)) |val| val.* else {
-            this.state.logErr("variable '{s}' not defined", .{ident});
-            this.state.srcLoc(expression.start, @intCast(ident.len));
-            return error.Runtime;
+        .int => .{ .int = try loc.getInt(this.state) },
+        .real => .{ .real = try loc.getReal(this.state) },
+        .ident => {
+            const ident = loc.getIdent(this.state);
+
+            if (scope.getVariable(ident)) |val| {
+                return val.*;
+            } else {
+                this.state.logErr("variable '{s}' not defined", .{ident});
+                expression.src_slice.printWithUnderline(this.state);
+                return error.Runtime;
+            }
         },
-        .str => |str| {
-            const message = try Lexer.getStringAt(this.state, str.start);
+        .str => {
+            const message = try loc.getString(this.state);
             errdefer this.state.alloc.free(message);
 
             return .{ .str = message };

@@ -32,7 +32,7 @@ pub fn main() !void {
     }
     try state.err_writer.flush();
 
-    lexer.index = 0;
+    lexer.loc.index = 0;
     try state.err_writer.print("\n=== AST ===\n", .{});
 
     var parser: Parser = .{

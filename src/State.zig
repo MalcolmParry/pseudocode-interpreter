@@ -2,6 +2,8 @@ const std = @import("std");
 const Lexer = @import("Lexer.zig");
 const Parser = @import("Parser.zig");
 
+const State = @This();
+
 alloc: std.mem.Allocator,
 err_writer: *std.Io.Writer,
 out_writer: *std.Io.Writer,
@@ -18,52 +20,18 @@ pub fn logErr(this: *@This(), comptime fmt: []const u8, args: anytype) void {
     this.err_writer.flush() catch @panic("cant flush");
 }
 
-pub fn srcLoc(this: *@This(), start: u32, len: u32) void {
-    std.debug.assert(start < this.src.len);
-
-    const tty: std.Io.tty.Config = .escape_codes;
-
-    var line_start: u32 = 0;
-    for (this.src[0..start], 0..) |c, i| {
-        if (c == '\n') line_start = @intCast(i + 1);
-    }
-
-    var line_len: u32 = 0;
-    for (this.src[line_start..]) |c| {
-        if (c == '\n') break;
-        line_len += 1;
-    }
-
-    this.err_writer.print("{s}\n", .{this.src[line_start .. line_start + line_len]}) catch @panic("failed printing");
-    for (0..start - line_start) |_| this.err_writer.print(" ", .{}) catch @panic("failed printing");
-
-    tty.setColor(this.err_writer, .green) catch @panic("failed to set color");
-    this.err_writer.print("^", .{}) catch @panic("failed printing");
-    for (0..len - 1) |_| this.err_writer.print("~", .{}) catch @panic("failed printing");
-    this.err_writer.print("\n", .{}) catch @panic("failed printing");
-    tty.setColor(this.err_writer, .reset) catch @panic("failed to set color");
-    this.err_writer.flush() catch @panic("failed flushing");
-}
-
 pub fn expectToken(this: *@This(), expected: Lexer.Token.Type, got: Lexer.Token) !void {
     if (expected != got.t) {
         this.logErr("expected '{t}' got '{t}'", .{ expected, got.t });
-        this.srcLoc(got.start, this.tokenLengthAt(got.start));
+        got.start.printToken(this);
         return error.Parser;
     }
 }
 
 pub fn unexpectedToken(this: *@This(), got: Lexer.Token) error{Parser} {
     this.logErr("unexpected token '{t}'", .{got.t});
-    this.srcLoc(got.start, this.tokenLengthAt(got.start));
+    got.start.printToken(this);
     return error.Parser;
-}
-
-pub fn tokenLengthAt(this: *@This(), start: u32) u32 {
-    var lexer: Lexer = .{ .state = this, .index = start };
-    // token should have already been evaluated by the time this function is called
-    _ = lexer.nextTokenInternal() catch unreachable;
-    return lexer.index - start;
 }
 
 pub fn newExpression(this: *@This(), new: Parser.Expression) !Parser.Expression.Handle {
@@ -84,4 +52,68 @@ pub fn newCodeBlock(this: *@This(), new: Parser.CodeBlock) !Parser.CodeBlock.Han
 pub const types = struct {
     pub const Int = i64;
     pub const Real = f64;
+};
+
+pub const SourceLocation = struct {
+    index: u32,
+
+    pub fn tokenLength(this: @This(), state: *State) u16 {
+        var lexer: Lexer = .{ .state = state, .loc = this };
+        // token should have already been evaluated by the time this function is called
+        _ = lexer.nextTokenInternal() catch unreachable;
+        return @intCast(lexer.loc.index - this.index);
+    }
+
+    pub fn print(this: @This(), state: *State) void {
+        const slice = SourceSlice{ .start = this.index, .len = 1 };
+        slice.printWithUnderline(state);
+    }
+
+    pub fn printToken(this: @This(), state: *State) void {
+        const slice = SourceSlice{ .start = this.index, .len = this.tokenLength(state) };
+        slice.printWithUnderline(state);
+    }
+
+    pub const getInt = Lexer.getIntAt;
+    pub const getReal = Lexer.getRealAt;
+    pub const getString = Lexer.getStringAt;
+    pub const getIdent = Lexer.getIdentAt;
+};
+
+pub const SourceSlice = struct {
+    start: u32,
+    len: u16,
+
+    pub fn loc(this: @This()) SourceLocation {
+        return .{
+            .index = this.start,
+        };
+    }
+
+    pub fn printWithUnderline(this: @This(), state: *State) void {
+        std.debug.assert(this.start < state.src.len);
+
+        const tty: std.Io.tty.Config = .escape_codes;
+
+        var line_start: u32 = 0;
+        for (state.src[0..this.start], 0..) |c, i| {
+            if (c == '\n') line_start = @intCast(i + 1);
+        }
+
+        var line_len: u32 = 0;
+        for (state.src[line_start..]) |c| {
+            if (c == '\n') break;
+            line_len += 1;
+        }
+
+        state.err_writer.print("{s}\n", .{state.src[line_start .. line_start + line_len]}) catch @panic("failed printing");
+        for (0..this.start - line_start) |_| state.err_writer.print(" ", .{}) catch @panic("failed printing");
+
+        tty.setColor(state.err_writer, .green) catch @panic("failed to set color");
+        state.err_writer.print("^", .{}) catch @panic("failed printing");
+        for (0..this.len - 1) |_| state.err_writer.print("~", .{}) catch @panic("failed printing");
+        state.err_writer.print("\n", .{}) catch @panic("failed printing");
+        tty.setColor(state.err_writer, .reset) catch @panic("failed to set color");
+        state.err_writer.flush() catch @panic("failed flushing");
+    }
 };

@@ -35,7 +35,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                     return this.state.newStatement(.{
                         .data = .{
                             .assign = .{
-                                .ident_start = token.start,
+                                .ident_loc = token.start,
                                 .value = expression,
                             },
                         },
@@ -57,8 +57,8 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             return this.state.newStatement(.{
                 .data = .{
                     .define = .{
-                        .ident_start = ident.start,
-                        .type_start = t.start,
+                        .ident_loc = ident.start,
+                        .type_loc = t.start,
                     },
                 },
             });
@@ -78,7 +78,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
 
             return this.state.newStatement(.{
                 .data = .{
-                    .input = .{ .ident_start = ident.start },
+                    .input = .{ .ident_loc = ident.start },
                 },
             });
         },
@@ -88,7 +88,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 this.state.logErr("expected assign statement", .{});
                 return error.Parser;
             }
-            const ident = Lexer.getIdentAt(this.state, assign.value(this.state).data.assign.ident_start);
+            const ident = assign.value(this.state).data.assign.ident_loc.getIdent(this.state);
 
             const to = try this.lexer.nextToken();
             try this.state.expectToken(.to, to);
@@ -100,7 +100,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             const var_name = try this.lexer.nextToken();
             try this.state.expectToken(.ident, var_name);
 
-            if (!std.mem.eql(u8, ident, Lexer.getIdentAt(this.state, var_name.start))) {
+            if (!std.mem.eql(u8, ident, var_name.start.getIdent(this.state))) {
                 this.state.logErr("both identifiers to counter variable must be the same", .{});
                 return error.Parser;
             }
@@ -135,6 +135,7 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, 
         return this.parseUnaryOp();
 
     var left = try this.parseExpression(order + 1);
+    const start = left.value(this.state).src_slice.loc();
 
     while (true) {
         const op_tok = try this.lexer.peekToken();
@@ -151,7 +152,10 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, 
         const right = try this.parseExpression(order + 1);
 
         left = try this.state.newExpression(.{
-            .start = left.value(this.state).start,
+            .src_slice = .{
+                .start = start.index,
+                .len = @intCast(this.lexer.loc.index - start.index),
+            },
             .data = .{ .bin = .{
                 .left = left,
                 .right = right,
@@ -169,28 +173,38 @@ pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expressi
             const expression = try this.parseUnaryOp();
 
             return this.state.newExpression(.{
-                .start = token.start,
+                .src_slice = .{
+                    .start = token.start.index,
+                    .len = @intCast(this.lexer.loc.index - token.start.index),
+                },
                 .data = .{ .neg = expression },
             });
         },
         .lparen => {
             const expression = try this.parseExpression(0);
-            expression.value(this.state).start = token.start;
 
             const rparen = try this.lexer.nextToken();
             try this.state.expectToken(.rparen, rparen);
 
+            expression.value(this.state).src_slice = .{
+                .start = token.start.index,
+                .len = @intCast(this.lexer.loc.index - token.start.index),
+            };
+
             return expression;
         },
-        .int => .{ .int = try Lexer.getIntAt(this.state, token.start) },
-        .real => .{ .real = try Lexer.getRealAt(this.state, token.start) },
-        .ident => .{ .ident = Lexer.getIdentAt(this.state, token.start) },
-        .str => .{ .str = .{ .start = token.start } },
+        .int => .int,
+        .real => .real,
+        .ident => .ident,
+        .str => .str,
         else => return this.state.unexpectedToken(token),
     };
 
     return this.state.newExpression(.{
-        .start = token.start,
+        .src_slice = .{
+            .start = token.start.index,
+            .len = @intCast(this.lexer.loc.index - token.start.index),
+        },
         .data = data,
     });
 }
@@ -233,16 +247,14 @@ pub const BinaryOp = struct {
 };
 
 pub const Expression = struct {
-    start: u32,
+    src_slice: State.SourceSlice,
     data: Data,
 
     pub const Data = union(enum) {
-        ident: []const u8,
-        int: State.types.Int,
-        real: State.types.Real,
-        str: struct {
-            start: u32,
-        },
+        ident,
+        int,
+        real,
+        str,
         neg: Expression.Handle,
         bin: BinaryOp,
     };
@@ -252,15 +264,18 @@ pub const Expression = struct {
         this: Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            switch (this.this.value(this.state).data) {
-                .int => |int| try writer.print("{}", .{int}),
-                .real => |real| try writer.print("{}f", .{real}),
-                .str => |str| {
-                    const message = Lexer.getStringAt(this.state, str.start) catch return error.WriteFailed;
+            const expression = this.this.value(this.state);
+            const loc = expression.src_slice.loc();
+
+            switch (expression.data) {
+                .int => try writer.print("{}", .{loc.getInt(this.state) catch return error.WriteFailed}),
+                .real => try writer.print("{}f", .{loc.getReal(this.state) catch return error.WriteFailed}),
+                .ident => try writer.print("@'{s}'", .{loc.getIdent(this.state)}),
+                .str => {
+                    const message = loc.getString(this.state) catch return error.WriteFailed;
                     defer this.state.alloc.free(message);
                     try writer.print("'{s}'", .{message});
                 },
-                .ident => |ident| try writer.print("@'{s}'", .{ident}),
                 .neg => |neg| try writer.print("-{f}", .{Formatter{ .state = this.state, .this = neg }}),
                 .bin => |bin| try writer.print("({f} {c} {f})", .{
                     Formatter{ .state = this.state, .this = bin.left },
@@ -304,17 +319,17 @@ pub const Statement = struct {
     };
 
     pub const Input = struct {
-        ident_start: u32,
+        ident_loc: State.SourceLocation,
     };
 
     pub const Assign = struct {
-        ident_start: u32,
+        ident_loc: State.SourceLocation,
         value: Expression.Handle,
     };
 
     pub const Define = struct {
-        ident_start: u32,
-        type_start: u32,
+        ident_loc: State.SourceLocation,
+        type_loc: State.SourceLocation,
     };
 
     pub const ForLoop = struct {
@@ -329,10 +344,10 @@ pub const Statement = struct {
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this.this.value(this.state).data) {
-                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ Lexer.getIdentAt(this.state, assign.ident_start), Expression.Formatter{ .state = this.state, .this = assign.value } }),
-                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ Lexer.getIdentAt(this.state, define.ident_start), Lexer.getIdentAt(this.state, define.type_start) }),
+                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident_loc.getIdent(this.state), Expression.Formatter{ .state = this.state, .this = assign.value } }),
+                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident_loc.getIdent(this.state), define.type_loc.getIdent(this.state) }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
-                .input => |input| try writer.print("input to @'{s}'", .{Lexer.getIdentAt(this.state, input.ident_start)}),
+                .input => |input| try writer.print("input to @'{s}'", .{input.ident_loc.getIdent(this.state)}),
                 .for_loop => |for_loop| try writer.print("for {{{f}}} to {f}\n{f}", .{
                     Formatter{ .state = this.state, .this = for_loop.assign },
                     Expression.Formatter{ .state = this.state, .this = for_loop.limit },
