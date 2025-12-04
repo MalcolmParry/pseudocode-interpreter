@@ -27,8 +27,8 @@ pub fn main() !void {
     try state.err_writer.print("=== TOKENS ===\n", .{});
     while (true) {
         const token = lexer.nextToken() catch |err| if (err != error.Lexer) return err else return;
-        try err_writer.print("{f}\n", .{token.data});
-        if (token.data == .eof) break;
+        try err_writer.print("{f}\n", .{Lexer.Token.Formatter{ .state = &state, .this = token }});
+        if (token.t == .eof) break;
     }
     try state.err_writer.flush();
 
@@ -56,6 +56,6 @@ pub fn main() !void {
     try runner.addRuntimePrimatives(&root_scope);
 
     try state.err_writer.print("\n=== RUNNER ===\n", .{});
-    runner.runCodeBlock(code_block, &root_scope) catch |err| if (err != error.Runtime) return err else return;
     try state.err_writer.flush();
+    runner.runCodeBlock(code_block, &root_scope) catch |err| if (err != error.Runtime) return err else return;
 }

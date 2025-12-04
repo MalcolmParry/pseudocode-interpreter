@@ -26,14 +26,17 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
 
     switch (statement.data) {
         .define => |define| {
-            if (scope.variables.contains(define.ident)) {
-                this.state.logErr("variable '{s}' already defined", .{define.ident});
+            const ident = Lexer.getIdentAt(this.state, define.ident_start);
+            const t_name = Lexer.getIdentAt(this.state, define.type_start);
+
+            if (scope.variables.contains(ident)) {
+                this.state.logErr("variable '{s}' already defined", .{ident});
                 this.state.srcLoc(define.ident_start, this.state.tokenLengthAt(define.ident_start));
                 return error.Runtime;
             }
 
-            const t_var = if (scope.getVariable(define.t)) |t_var| t_var else {
-                this.state.logErr("type '{s}' not defined", .{define.t});
+            const t_var = if (scope.getVariable(t_name)) |t_var| t_var else {
+                this.state.logErr("type '{s}' not defined", .{t_name});
                 this.state.srcLoc(define.type_start, this.state.tokenLengthAt(define.type_start));
                 return error.Runtime;
             };
@@ -44,11 +47,13 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                 return error.Runtime;
             };
 
-            try scope.variables.put(this.state.alloc, define.ident, t.default());
+            try scope.variables.put(this.state.alloc, ident, t.default());
         },
         .assign => |assign| {
-            const variable = try scope.getOrCreateVariable(this, assign.ident);
+            const ident = Lexer.getIdentAt(this.state, assign.ident_start);
+            const variable = try scope.getOrCreateVariable(this, ident);
             const value = try this.evalExpression(scope, assign.value);
+
             if (@as(Type, value) != variable.* and variable.* != .undef) {
                 const start = assign.value.value(this.state).start;
                 this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
@@ -68,8 +73,9 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             try this.state.out_writer.flush();
         },
         .input => |input| {
-            const variable = if (scope.getVariable(input.ident)) |x| x else {
-                this.state.logErr("variable '{s}' not defined", .{input.ident});
+            const ident = Lexer.getIdentAt(this.state, input.ident_start);
+            const variable = if (scope.getVariable(ident)) |x| x else {
+                this.state.logErr("variable '{s}' not defined", .{ident});
                 return error.Runtime;
             };
 
@@ -103,23 +109,24 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             variable.deinit(this.state);
             variable.* = try value.copy(this.state);
         },
-        .@"for" => |@"for"| {
+        .for_loop => |for_loop| {
             // TODO: allow for non int counters
             var new_scope: Scope = .{
                 .parent = scope,
                 .variables = .empty,
             };
 
-            try runStatement(this, &new_scope, @"for".assign);
-            const variable = new_scope.getVariable(@"for".assign.value(this.state).data.assign.ident) orelse unreachable;
-            const limit = try evalExpression(this, &new_scope, @"for".limit);
+            const ident = Lexer.getIdentAt(this.state, for_loop.assign.value(this.state).data.assign.ident_start);
+            try runStatement(this, &new_scope, for_loop.assign);
+            const variable = new_scope.getVariable(ident) orelse unreachable;
+            const limit = try evalExpression(this, &new_scope, for_loop.limit);
             const int_limit = (try limit.coerceType(this.state, .int)).int;
 
             while (true) {
                 const as_int = (try variable.coerceType(this.state, .int)).int;
                 if (as_int > int_limit) break;
 
-                try runCodeBlock(this, @"for".block, &new_scope);
+                try runCodeBlock(this, for_loop.block, &new_scope);
 
                 variable.* = .{ .int = as_int + 1 };
             }

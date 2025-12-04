@@ -7,11 +7,11 @@ const Parser = @This();
 state: *State,
 lexer: *Lexer,
 
-pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag) error{ Lexer, Parser, OutOfMemory }!CodeBlock.Handle {
+pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Type) error{ Lexer, Parser, OutOfMemory }!CodeBlock.Handle {
     var statements: std.ArrayList(Statement.Handle) = .{};
     errdefer statements.deinit(this.state.alloc);
 
-    while ((try this.lexer.peekToken()).data != end) {
+    while ((try this.lexer.peekToken()).t != end) {
         const next = try this.parseStatement();
         try statements.append(this.state.alloc, next);
     }
@@ -24,18 +24,18 @@ pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Data.Tag) error{ Lexer, P
 pub fn parseStatement(this: *@This()) !Statement.Handle {
     const token = try this.lexer.nextToken();
 
-    switch (token.data) {
-        .ident => |ident| {
+    switch (token.t) {
+        .ident => {
             const token2 = try this.lexer.nextToken();
 
-            switch (token2.data) {
+            switch (token2.t) {
                 .assign => {
                     const expression = try this.parseExpression(0);
 
                     return this.state.newStatement(.{
                         .data = .{
                             .assign = .{
-                                .ident = ident,
+                                .ident_start = token.start,
                                 .value = expression,
                             },
                         },
@@ -59,8 +59,6 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                     .define = .{
                         .ident_start = ident.start,
                         .type_start = t.start,
-                        .ident = ident.data.ident,
-                        .t = t.data.ident,
                     },
                 },
             });
@@ -80,16 +78,17 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
 
             return this.state.newStatement(.{
                 .data = .{
-                    .input = .{ .ident = ident.data.ident },
+                    .input = .{ .ident_start = ident.start },
                 },
             });
         },
-        .@"for" => {
+        .for_loop => {
             const assign = try this.parseStatement();
             if (assign.value(this.state).data != .assign) {
                 this.state.logErr("expected assign statement", .{});
                 return error.Parser;
             }
+            const ident = Lexer.getIdentAt(this.state, assign.value(this.state).data.assign.ident_start);
 
             const to = try this.lexer.nextToken();
             try this.state.expectToken(.to, to);
@@ -101,14 +100,14 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             const var_name = try this.lexer.nextToken();
             try this.state.expectToken(.ident, var_name);
 
-            if (!std.mem.eql(u8, assign.value(this.state).data.assign.ident, var_name.data.ident)) {
+            if (!std.mem.eql(u8, ident, Lexer.getIdentAt(this.state, var_name.start))) {
                 this.state.logErr("both identifiers to counter variable must be the same", .{});
                 return error.Parser;
             }
 
             return this.state.newStatement(.{
                 .data = .{
-                    .@"for" = .{
+                    .for_loop = .{
                         .assign = assign,
                         .limit = expression,
                         .block = block,
@@ -126,7 +125,7 @@ pub fn parseExpressionList(this: *@This()) !std.ArrayList(Expression.Handle) {
     while (true) {
         try result.append(this.state.alloc, try this.parseExpression(0));
 
-        if ((try this.lexer.peekToken()).data != .comma) return result;
+        if ((try this.lexer.peekToken()).t != .comma) return result;
         _ = this.lexer.nextToken() catch unreachable;
     }
 }
@@ -139,7 +138,7 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, 
 
     while (true) {
         const op_tok = try this.lexer.peekToken();
-        const op: BinaryOp.Op = switch (op_tok.data) {
+        const op: BinaryOp.Op = switch (op_tok.t) {
             .add => .add,
             .sub => .sub,
             .mul => .mul,
@@ -165,7 +164,7 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, 
 pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expression.Handle {
     const token = try this.lexer.nextToken();
 
-    const data: Expression.Data = switch (token.data) {
+    const data: Expression.Data = switch (token.t) {
         .sub => {
             const expression = try this.parseUnaryOp();
 
@@ -183,9 +182,9 @@ pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expressi
 
             return expression;
         },
-        .int => |int| .{ .int = int },
-        .real => |real| .{ .real = real },
-        .ident => |ident| .{ .ident = ident },
+        .int => .{ .int = try Lexer.getIntAt(this.state, token.start) },
+        .real => .{ .real = try Lexer.getRealAt(this.state, token.start) },
+        .ident => .{ .ident = Lexer.getIdentAt(this.state, token.start) },
         .str => .{ .str = .{ .start = token.start } },
         else => return this.state.unexpectedToken(token),
     };
@@ -301,26 +300,24 @@ pub const Statement = struct {
         define: Define,
         output: std.ArrayList(Expression.Handle),
         input: Input,
-        @"for": For,
+        for_loop: ForLoop,
     };
 
     pub const Input = struct {
-        ident: []const u8,
+        ident_start: u32,
     };
 
     pub const Assign = struct {
-        ident: []const u8,
+        ident_start: u32,
         value: Expression.Handle,
     };
 
     pub const Define = struct {
-        ident: []const u8,
-        t: []const u8,
         ident_start: u32,
         type_start: u32,
     };
 
-    pub const For = struct {
+    pub const ForLoop = struct {
         assign: Handle,
         limit: Expression.Handle,
         block: CodeBlock.Handle,
@@ -332,14 +329,14 @@ pub const Statement = struct {
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this.this.value(this.state).data) {
-                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident, Expression.Formatter{ .state = this.state, .this = assign.value } }),
-                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident, define.t }),
+                .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ Lexer.getIdentAt(this.state, assign.ident_start), Expression.Formatter{ .state = this.state, .this = assign.value } }),
+                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ Lexer.getIdentAt(this.state, define.ident_start), Lexer.getIdentAt(this.state, define.type_start) }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
-                .input => |input| try writer.print("input to @'{s}'", .{input.ident}),
-                .@"for" => |@"for"| try writer.print("for {{{f}}} to {f}\n{f}", .{
-                    Formatter{ .state = this.state, .this = @"for".assign },
-                    Expression.Formatter{ .state = this.state, .this = @"for".limit },
-                    CodeBlock.Formatter{ .state = this.state, .this = @"for".block, .indent = 1 },
+                .input => |input| try writer.print("input to @'{s}'", .{Lexer.getIdentAt(this.state, input.ident_start)}),
+                .for_loop => |for_loop| try writer.print("for {{{f}}} to {f}\n{f}", .{
+                    Formatter{ .state = this.state, .this = for_loop.assign },
+                    Expression.Formatter{ .state = this.state, .this = for_loop.limit },
+                    CodeBlock.Formatter{ .state = this.state, .this = for_loop.block, .indent = 1 },
                 }),
             }
         }

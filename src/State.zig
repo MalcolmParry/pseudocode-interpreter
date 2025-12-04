@@ -45,16 +45,16 @@ pub fn srcLoc(this: *@This(), start: u32, len: u32) void {
     this.err_writer.flush() catch @panic("failed flushing");
 }
 
-pub fn expectToken(this: *@This(), expected: Lexer.Token.Data.Tag, got: Lexer.Token) !void {
-    if (expected != got.data) {
-        this.logErr("expected '{t}' got '{t}'", .{ expected, got.data });
+pub fn expectToken(this: *@This(), expected: Lexer.Token.Type, got: Lexer.Token) !void {
+    if (expected != got.t) {
+        this.logErr("expected '{t}' got '{t}'", .{ expected, got.t });
         this.srcLoc(got.start, this.tokenLengthAt(got.start));
         return error.Parser;
     }
 }
 
 pub fn unexpectedToken(this: *@This(), got: Lexer.Token) error{Parser} {
-    this.logErr("unexpected token '{t}'", .{got.data});
+    this.logErr("unexpected token '{t}'", .{got.t});
     this.srcLoc(got.start, this.tokenLengthAt(got.start));
     return error.Parser;
 }

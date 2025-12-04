@@ -7,7 +7,7 @@ index: u32 = 0,
 pub fn nextToken(this: *@This()) !Token {
     while (true) {
         const token = try this.nextTokenInternal();
-        if (token.data != .whitespace) return token;
+        if (token.t != .whitespace) return token;
     }
 }
 
@@ -15,7 +15,7 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
     const start = this.index;
     const c = if (this.peekChar(0)) |c| c else return .{
         .start = @intCast(this.state.src.len - 1),
-        .data = .eof,
+        .t = .eof,
     };
 
     if (std.ascii.isWhitespace(c)) {
@@ -23,13 +23,13 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
             this.index += 1;
         }
 
-        return .{ .start = start, .data = .whitespace };
+        return .{ .start = start, .t = .whitespace };
     }
 
     if (std.ascii.isDigit(c)) return try this.parseNum();
     if (std.ascii.isAlphabetic(c) or c == '_') return this.parseIdentifier();
 
-    const token: Token.Data = switch (c) {
+    const t: Token.Type = switch (c) {
         ':' => .colon,
         '+' => .add,
         '-' => .sub,
@@ -62,7 +62,7 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
     this.index += 1;
     return .{
         .start = start,
-        .data = token,
+        .t = t,
     };
 }
 
@@ -90,23 +90,9 @@ pub fn parseNum(this: *@This()) error{Lexer}!Token {
             continue;
         }
 
-        const str = this.state.src[start..this.index];
         return .{
             .start = start,
-            .data = if (radix_point) .{
-                .real = std.fmt.parseFloat(State.types.Real, str) catch |err| switch (err) {
-                    error.InvalidCharacter => unreachable,
-                },
-            } else .{
-                .int = std.fmt.parseInt(State.types.Int, str, 0) catch |err| switch (err) {
-                    error.InvalidCharacter => unreachable,
-                    error.Overflow => {
-                        this.state.logErr("integer overflow", .{});
-                        this.state.srcLoc(start, this.index - start);
-                        return error.Lexer;
-                    },
-                },
-            },
+            .t = if (radix_point) .real else .int,
         };
     }
 }
@@ -138,7 +124,61 @@ pub fn parseString(this: *@This()) !Token {
     this.index += 1;
     return .{
         .start = start,
-        .data = .str,
+        .t = .str,
+    };
+}
+
+pub fn parseIdentifier(this: *@This()) Token {
+    const start = this.index;
+
+    while (true) {
+        const maybe_c = this.peekChar(0);
+        const valid = if (maybe_c) |c| std.ascii.isAlphanumeric(c) or c == '_' else false;
+
+        if (valid) {
+            this.index += 1;
+            continue;
+        }
+
+        const str = this.state.src[start..this.index];
+        const t: Token.Type = blk: {
+            if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
+            if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
+            if (std.mem.eql(u8, str, "INPUT")) break :blk .input;
+            if (std.mem.eql(u8, str, "FOR")) break :blk .for_loop;
+            if (std.mem.eql(u8, str, "TO")) break :blk .to;
+            if (std.mem.eql(u8, str, "NEXT")) break :blk .next;
+
+            break :blk .ident;
+        };
+
+        return .{
+            .start = start,
+            .t = t,
+        };
+    }
+}
+
+/// assumes no errors
+pub fn getIntAt(state: *State, start: u32) !State.types.Int {
+    const len = state.tokenLengthAt(start);
+
+    return std.fmt.parseInt(State.types.Int, state.src[start .. start + len], 0) catch |err| switch (err) {
+        error.InvalidCharacter => unreachable,
+        error.Overflow => {
+            state.logErr("integer overflow", .{});
+            state.srcLoc(start, len);
+            return error.Lexer;
+        },
+    };
+}
+
+/// assumes no errors
+pub fn getRealAt(state: *State, start: u32) !State.types.Real {
+    const len = state.tokenLengthAt(start);
+
+    return std.fmt.parseFloat(State.types.Real, state.src[start .. start + len]) catch |err| switch (err) {
+        error.InvalidCharacter => unreachable,
     };
 }
 
@@ -172,35 +212,11 @@ pub fn getStringAt(state: *State, start: u32) error{OutOfMemory}![]u8 {
     return str;
 }
 
-pub fn parseIdentifier(this: *@This()) Token {
-    const start = this.index;
+/// assumes no errors
+pub fn getIdentAt(state: *State, start: u32) []const u8 {
+    const len = state.tokenLengthAt(start);
 
-    while (true) {
-        const maybe_c = this.peekChar(0);
-        const valid = if (maybe_c) |c| std.ascii.isAlphanumeric(c) or c == '_' else false;
-
-        if (valid) {
-            this.index += 1;
-            continue;
-        }
-
-        const str = this.state.src[start..this.index];
-        const data: Token.Data = blk: {
-            if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
-            if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
-            if (std.mem.eql(u8, str, "INPUT")) break :blk .input;
-            if (std.mem.eql(u8, str, "FOR")) break :blk .@"for";
-            if (std.mem.eql(u8, str, "TO")) break :blk .to;
-            if (std.mem.eql(u8, str, "NEXT")) break :blk .next;
-
-            break :blk .{ .ident = str };
-        };
-
-        return .{
-            .start = start,
-            .data = data,
-        };
-    }
+    return state.src[start .. start + len];
 }
 
 pub fn peekChar(this: *@This(), offset: usize) ?u8 {
@@ -215,17 +231,15 @@ pub fn peekToken(this: *@This()) error{Lexer}!Token {
 
 pub const Token = struct {
     start: u32,
-    data: Data,
+    t: Type,
 
-    pub const Data = union(enum) {
-        pub const Tag = @typeInfo(@This()).@"union".tag_type.?;
-
+    pub const Type = enum {
         eof,
         whitespace,
-        ident: []const u8,
+        ident,
         // literal
-        int: State.types.Int,
-        real: State.types.Real,
+        int,
+        real,
         str,
         // bin op
         add,
@@ -244,24 +258,29 @@ pub const Token = struct {
         declare,
         output,
         input,
-        @"for",
+        for_loop,
         to,
         next,
 
-        pub fn isLiteral(tag: Tag) bool {
-            return switch (tag) {
+        pub fn isLiteral(t: Type) bool {
+            return switch (t) {
                 .int => true,
                 .real => true,
                 else => false,
             };
         }
+    };
+
+    pub const Formatter = struct {
+        state: *State,
+        this: Token,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            switch (this) {
-                .int => |int| try writer.print("{}", .{int}),
-                .real => |real| try writer.print("{}f", .{real}),
-                .ident => |ident| try writer.print("@'{s}'", .{ident}),
-                else => try writer.print("{s} ", .{@tagName(this)}),
+            switch (this.this.t) {
+                .int => try writer.print("{}", .{getIntAt(this.state, this.this.start) catch return error.WriteFailed}),
+                .real => try writer.print("{}f", .{getRealAt(this.state, this.this.start) catch return error.WriteFailed}),
+                .ident => try writer.print("@'{s}'", .{getIdentAt(this.state, this.this.start)}),
+                else => try writer.print("{s}", .{@tagName(this.this.t)}),
             }
         }
     };
