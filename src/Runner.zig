@@ -108,24 +108,24 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             variable.deinit(this.state);
             variable.* = try value.copy(this.state);
         },
-        .for_loop => |for_loop| {
+        .for_ => |for_| {
             // TODO: allow for non int counters
             var new_scope: Scope = .{
                 .parent = scope,
                 .variables = .empty,
             };
 
-            const ident = for_loop.assign.value(this.state).data.assign.ident_loc.getIdent(this.state);
-            try runStatement(this, &new_scope, for_loop.assign);
+            const ident = for_.assign.value(this.state).data.assign.ident_loc.getIdent(this.state);
+            try runStatement(this, &new_scope, for_.assign);
             const variable = new_scope.getVariable(ident) orelse unreachable;
-            const limit = try evalExpression(this, &new_scope, for_loop.limit);
+            const limit = try evalExpression(this, &new_scope, for_.limit);
             const int_limit = (try limit.coerceType(this.state, .int)).int;
 
             while (true) {
                 const as_int = (try variable.coerceType(this.state, .int)).int;
                 if (as_int > int_limit) break;
 
-                try runCodeBlock(this, for_loop.block, &new_scope);
+                try runCodeBlock(this, for_.block, &new_scope);
 
                 variable.* = .{ .int = as_int + 1 };
             }
@@ -158,18 +158,87 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
             return .{ .str = message };
         },
         .neg => |neg| try (try evalExpression(this, scope, neg)).neg(this.state),
-        .bin => |bin| return Value.binOp(
-            try evalExpression(this, scope, bin.left),
-            try evalExpression(this, scope, bin.right),
-            bin.op,
-            this.state,
-        ),
+        .bin => |bin| {
+            var left = try evalExpression(this, scope, bin.left);
+            var right = try evalExpression(this, scope, bin.right);
+
+            switch (bin.op) {
+                .add, .sub, .mul => {
+                    if (right == .real) left = try left.coerceType(this.state, .real);
+                    if (left == .real) right = try right.coerceType(this.state, .real);
+
+                    return switch (right) {
+                        .int => .{ .int = Value.arithmeticBinOp(State.types.Int, left.int, right.int, bin.op) },
+                        .real => .{ .real = Value.arithmeticBinOp(State.types.Real, left.real, right.real, bin.op) },
+                        else => {
+                            this.state.logErr("wrong type {t}", .{left});
+                            return error.Runtime;
+                        },
+                    };
+                },
+                .div => {
+                    left = try left.coerceType(this.state, .real);
+                    right = try right.coerceType(this.state, .real);
+
+                    return .{ .real = left.real / right.real };
+                },
+                .eq, .not_eq => {
+                    if (right == .real) left = try left.coerceType(this.state, .real);
+                    if (left == .real) right = try right.coerceType(this.state, .real);
+                    if (@as(Type, right) != left) {
+                        this.state.logErr("mismatch in type", .{});
+                        return error.Runtime;
+                    }
+
+                    var result = switch (right) {
+                        .int => left.int == right.int,
+                        .real => left.real == right.real,
+                        .bool_ => left.bool_ == right.bool_,
+                        .str => std.mem.eql(u8, left.str, right.str),
+                        else => {
+                            this.state.logErr("wrong type {t}", .{left});
+                            return error.Runtime;
+                        },
+                    };
+
+                    if (bin.op == .not_eq) result = !result;
+                    return .{ .bool_ = result };
+                },
+                .more, .less, .more_eq, .less_eq => {
+                    if (right == .real) left = try left.coerceType(this.state, .real);
+                    if (left == .real) right = try right.coerceType(this.state, .real);
+
+                    return switch (right) {
+                        .int => .{ .bool_ = Value.boolBinOp(State.types.Int, left.int, right.int, bin.op) },
+                        .real => .{ .bool_ = Value.boolBinOp(State.types.Real, left.real, right.real, bin.op) },
+                        else => {
+                            this.state.logErr("wrong type {t}", .{left});
+                            return error.Runtime;
+                        },
+                    };
+                },
+                .and_, .or_ => {
+                    try left.assertType(this.state, .bool_);
+                    try right.assertType(this.state, .bool_);
+
+                    return switch (bin.op) {
+                        .and_ => .{ .bool_ = left.bool_ and right.bool_ },
+                        .or_ => .{ .bool_ = left.bool_ or right.bool_ },
+                        else => unreachable,
+                    };
+                },
+            }
+        },
     };
 }
 
 pub fn addRuntimePrimatives(this: *@This(), scope: *Scope) !void {
     try scope.variables.put(this.state.alloc, "INTEGER", .{ .t = .int });
     try scope.variables.put(this.state.alloc, "REAL", .{ .t = .real });
+    try scope.variables.put(this.state.alloc, "BOOLEAN", .{ .t = .bool_ });
+
+    try scope.variables.put(this.state.alloc, "TRUE", .{ .bool_ = true });
+    try scope.variables.put(this.state.alloc, "FALSE", .{ .bool_ = false });
 }
 
 pub const Type = enum {
@@ -178,6 +247,7 @@ pub const Type = enum {
     int,
     real,
     str,
+    bool_,
     t,
 
     pub fn default(t: Type) Value {
@@ -186,6 +256,7 @@ pub const Type = enum {
             .int => .{ .int = 0 },
             .real => .{ .real = 0 },
             .str => .{ .str = &.{} },
+            .bool_ => .{ .bool_ = false },
             .t => @panic("no default type"),
         };
     }
@@ -196,6 +267,7 @@ pub const Value = union(Type) {
     int: State.types.Int,
     real: State.types.Real,
     str: []u8,
+    bool_: bool,
     t: Type,
 
     pub fn deinit(this: @This(), state: *State) void {
@@ -223,38 +295,39 @@ pub const Value = union(Type) {
         }
     }
 
-    pub fn binOp(left: @This(), right: @This(), op: Parser.BinaryOp.Op, state: *State) !@This() {
-        switch (op) {
-            .add, .sub, .mul => {
-                try assertNumeric(left, state);
-                try assertNumeric(right, state);
+    pub fn arithmeticBinOp(T: type, left: T, right: T, op: Parser.BinaryOp.Op) T {
+        return switch (op) {
+            .add => left + right,
+            .sub => left - right,
+            .mul => left * right,
+            .div => if (@typeInfo(T) == .int) @divTrunc(left, right) else left / right,
+            else => @panic("wrong type"),
+        };
+    }
 
-                const new_left = if (right == .real) try left.coerceType(state, .real) else left;
-                const new_right = if (left == .real) try right.coerceType(state, .real) else right;
+    pub fn boolBinOp(T: type, left: T, right: T, op: Parser.BinaryOp.Op) bool {
+        return switch (op) {
+            .eq => left == right,
+            .not_eq => left != right,
+            .more => left > right,
+            .less => left < right,
+            .more_eq => left >= right,
+            .less_eq => left <= right,
+            else => @panic("wrong type"),
+        };
+    }
 
-                return switch (op) {
-                    .add => if (new_left == .int) .{ .int = new_left.int + new_right.int } else .{ .real = new_left.real + new_right.real },
-                    .sub => if (new_left == .int) .{ .int = new_left.int - new_right.int } else .{ .real = new_left.real - new_right.real },
-                    .mul => if (new_left == .int) .{ .int = new_left.int * new_right.int } else .{ .real = new_left.real * new_right.real },
-                    else => unreachable,
-                };
-            },
-            .div => {
-                const new_left = try left.coerceType(state, .real);
-                const new_right = try right.coerceType(state, .real);
-
-                return .{ .real = new_left.real / new_right.real };
-            },
+    pub fn assertType(this: @This(), state: *State, expected: Type) !void {
+        if (this != expected) {
+            state.logErr("expected '{t}' got '{t}'", .{ expected, this });
+            return error.Runtime;
         }
     }
 
-    pub fn assertNumeric(this: @This(), state: *State) !void {
+    pub fn isNumeric(this: Type) bool {
         switch (this) {
-            .int, .real => return,
-            else => {
-                state.logErr("expected numeric type", .{});
-                return error.Runtime;
-            },
+            .int, .real => true,
+            else => false,
         }
     }
 
@@ -284,6 +357,7 @@ pub const Value = union(Type) {
             .int => |int| try writer.print("{}", .{int}),
             .real => |real| try writer.print("{}", .{real}),
             .str => |str| try writer.print("{s}", .{str}),
+            .bool_ => |bool_| try writer.print("{}", .{bool_}),
             else => try writer.print("{s}", .{@tagName(this)}),
         }
     }

@@ -82,7 +82,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 },
             });
         },
-        .for_loop => {
+        .for_ => {
             const assign = try this.parseStatement();
             if (assign.value(this.state).data != .assign) {
                 this.state.logErr("expected assign statement", .{});
@@ -107,7 +107,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
 
             return this.state.newStatement(.{
                 .data = .{
-                    .for_loop = .{
+                    .for_ = .{
                         .assign = assign,
                         .limit = expression,
                         .block = block,
@@ -144,6 +144,14 @@ pub fn parseExpression(this: *@This(), order: usize) error{ OutOfMemory, Lexer, 
             .sub => .sub,
             .mul => .mul,
             .div => .div,
+            .eq => .eq,
+            .not_eq => .not_eq,
+            .more => .more,
+            .less => .less,
+            .more_eq => .more_eq,
+            .less_eq => .less_eq,
+            .and_ => .and_,
+            .or_ => .or_,
             else => return left,
         };
         if (!op.canUse(order)) return left;
@@ -209,7 +217,19 @@ pub fn parseUnaryOp(this: *@This()) error{ OutOfMemory, Lexer, Parser }!Expressi
     });
 }
 
-const order_of_operation: [2][]const BinaryOp.Op = .{
+const order_of_operation: [4][]const BinaryOp.Op = .{
+    &.{
+        .and_,
+        .or_,
+    },
+    &.{
+        .eq,
+        .not_eq,
+        .more,
+        .less,
+        .more_eq,
+        .less_eq,
+    },
     &.{
         .add,
         .sub,
@@ -222,17 +242,36 @@ const order_of_operation: [2][]const BinaryOp.Op = .{
 
 pub const BinaryOp = struct {
     pub const Op = enum {
+        // arithmetic
         add,
         sub,
         mul,
         div,
+        // relational
+        eq,
+        not_eq,
+        more,
+        less,
+        more_eq,
+        less_eq,
+        // logical
+        and_,
+        or_,
 
-        pub fn getChar(this: @This()) u8 {
+        pub fn getSymbol(this: @This()) []const u8 {
             return switch (this) {
-                .add => '+',
-                .sub => '-',
-                .mul => '*',
-                .div => '/',
+                .add => "+",
+                .sub => "-",
+                .mul => "*",
+                .div => "/",
+                .eq => "=",
+                .not_eq => "!=",
+                .more => ">",
+                .less => "<",
+                .more_eq => ">=",
+                .less_eq => "<=",
+                .and_ => "and",
+                .or_ => "or",
             };
         }
 
@@ -256,6 +295,7 @@ pub const Expression = struct {
         real,
         str,
         neg: Expression.Handle,
+        // TODO: add not
         bin: BinaryOp,
     };
 
@@ -277,9 +317,9 @@ pub const Expression = struct {
                     try writer.print("'{s}'", .{message});
                 },
                 .neg => |neg| try writer.print("-{f}", .{Formatter{ .state = this.state, .this = neg }}),
-                .bin => |bin| try writer.print("({f} {c} {f})", .{
+                .bin => |bin| try writer.print("({f} {s} {f})", .{
                     Formatter{ .state = this.state, .this = bin.left },
-                    bin.op.getChar(),
+                    bin.op.getSymbol(),
                     Formatter{ .state = this.state, .this = bin.right },
                 }),
             }
@@ -315,7 +355,7 @@ pub const Statement = struct {
         define: Define,
         output: std.ArrayList(Expression.Handle),
         input: Input,
-        for_loop: ForLoop,
+        for_: ForLoop,
     };
 
     pub const Input = struct {
@@ -348,10 +388,10 @@ pub const Statement = struct {
                 .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident_loc.getIdent(this.state), define.type_loc.getIdent(this.state) }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
                 .input => |input| try writer.print("input to @'{s}'", .{input.ident_loc.getIdent(this.state)}),
-                .for_loop => |for_loop| try writer.print("for {{{f}}} to {f}\n{f}", .{
-                    Formatter{ .state = this.state, .this = for_loop.assign },
-                    Expression.Formatter{ .state = this.state, .this = for_loop.limit },
-                    CodeBlock.Formatter{ .state = this.state, .this = for_loop.block, .indent = 1 },
+                .for_ => |for_| try writer.print("for {{{f}}} to {f}\n{f}", .{
+                    Formatter{ .state = this.state, .this = for_.assign },
+                    Expression.Formatter{ .state = this.state, .this = for_.limit },
+                    CodeBlock.Formatter{ .state = this.state, .this = for_.block, .indent = 1 },
                 }),
             }
         }

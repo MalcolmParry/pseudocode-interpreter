@@ -14,3 +14,6 @@ NEXT Counter
 DECLARE Average : REAL 
 Average <- Total / Number
 OUTPUT "The Average is: ", Average
+
+Thing <- 5 + 2 = 3 AND 1 < 7
+OUTPUT Thing

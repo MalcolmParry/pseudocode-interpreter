@@ -45,13 +45,31 @@ pub fn nextTokenInternal(this: *@This()) error{Lexer}!Token {
         } else .div,
         '(' => .lparen,
         ')' => .rparen,
-        '<' => if (this.peekChar(1) == '-') blk: {
-            this.loc.index += 1;
-            break :blk .assign;
-        } else .less,
-        '>' => .more,
+        '<' => switch (this.peekChar(1) orelse 0) {
+            '-' => blk: {
+                this.loc.index += 1;
+                break :blk .assign;
+            },
+            '>' => blk: {
+                this.loc.index += 1;
+                break :blk .not_eq;
+            },
+            '=' => blk: {
+                this.loc.index += 1;
+                break :blk .less_eq;
+            },
+            else => .less,
+        },
+        '>' => switch (this.peekChar(1) orelse 0) {
+            '=' => blk: {
+                this.loc.index += 1;
+                break :blk .more_eq;
+            },
+            else => .more,
+        },
         ',' => .comma,
         '\"' => return this.parseString(),
+        '=' => .eq,
         else => {
             this.state.logErr("unexpected character '{c}'", .{c});
             start.print(this.state);
@@ -146,9 +164,12 @@ pub fn parseIdentifier(this: *@This()) Token {
             if (std.mem.eql(u8, str, "DECLARE")) break :blk .declare;
             if (std.mem.eql(u8, str, "OUTPUT")) break :blk .output;
             if (std.mem.eql(u8, str, "INPUT")) break :blk .input;
-            if (std.mem.eql(u8, str, "FOR")) break :blk .for_loop;
+            if (std.mem.eql(u8, str, "FOR")) break :blk .for_;
             if (std.mem.eql(u8, str, "TO")) break :blk .to;
             if (std.mem.eql(u8, str, "NEXT")) break :blk .next;
+            if (std.mem.eql(u8, str, "AND")) break :blk .and_;
+            if (std.mem.eql(u8, str, "OR")) break :blk .or_;
+            if (std.mem.eql(u8, str, "NOT")) break :blk .not_;
 
             break :blk .ident;
         };
@@ -242,13 +263,22 @@ pub const Token = struct {
         int,
         real,
         str,
-        // bin op
+        // arithmetic bin op
         add,
         sub,
         mul,
         div,
+        // relational bin op
+        eq,
+        not_eq,
         less,
         more,
+        less_eq,
+        more_eq,
+        // logical bin op
+        and_,
+        or_,
+        not_,
         // symbol
         assign,
         comma,
@@ -259,7 +289,7 @@ pub const Token = struct {
         declare,
         output,
         input,
-        for_loop,
+        for_,
         to,
         next,
 
