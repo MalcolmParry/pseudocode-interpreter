@@ -115,6 +115,20 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 },
             });
         },
+        .if_ => {
+            const condition = try this.parseExpression(0);
+            try this.state.expectToken(.then, try this.lexer.nextToken());
+            const block = try this.parseCodeBlock(.endif);
+            try this.state.expectToken(.endif, try this.lexer.nextToken());
+            return this.state.newStatement(.{
+                .data = .{
+                    .if_ = .{
+                        .condition = condition,
+                        .block = block,
+                    },
+                },
+            });
+        },
         else => return this.state.unexpectedToken(token),
     }
 }
@@ -356,6 +370,7 @@ pub const Statement = struct {
         output: std.ArrayList(Expression.Handle),
         input: Input,
         for_: ForLoop,
+        if_: If,
     };
 
     pub const Input = struct {
@@ -378,6 +393,11 @@ pub const Statement = struct {
         block: CodeBlock.Handle,
     };
 
+    pub const If = struct {
+        condition: Expression.Handle,
+        block: CodeBlock.Handle,
+    };
+
     pub const Formatter = struct {
         state: *State,
         this: Handle,
@@ -392,6 +412,10 @@ pub const Statement = struct {
                     Formatter{ .state = this.state, .this = for_.assign },
                     Expression.Formatter{ .state = this.state, .this = for_.limit },
                     CodeBlock.Formatter{ .state = this.state, .this = for_.block, .indent = 1 },
+                }),
+                .if_ => |if_| try writer.print("if {f}\n{f}", .{
+                    Expression.Formatter{ .state = this.state, .this = if_.condition },
+                    CodeBlock.Formatter{ .state = this.state, .this = if_.block, .indent = 1 },
                 }),
             }
         }

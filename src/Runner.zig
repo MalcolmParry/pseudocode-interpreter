@@ -130,6 +130,13 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                 variable.* = .{ .int = as_int + 1 };
             }
         },
+        .if_ => |if_| {
+            const condition_value = try this.evalExpression(scope, if_.condition);
+            try condition_value.assertType(this.state, .bool_);
+
+            if (condition_value.bool_)
+                try this.runCodeBlock(if_.block, scope);
+        },
     }
 }
 

@@ -1,19 +1,25 @@
-DECLARE Total : INTEGER
-DECLARE Number : INTEGER 
-Total <- 0
-OUTPUT "How many numbers to input?"
-INPUT Number
+//DECLARE Total : INTEGER
+//DECLARE Number : INTEGER 
+//Total <- 0
+//OUTPUT "How many numbers to input?"
+//INPUT Number
+//
+//FOR Counter <- 1 TO Number
+//	DECLARE X : INTEGER
+//	OUTPUT "Enter Value"
+//	INPUT X
+//	Total <- Total + X
+//NEXT Counter
+//
+//DECLARE Average : REAL 
+//Average <- Total / Number
+//OUTPUT "The Average is: ", Average
 
-FOR Counter <- 1 TO Number
-	DECLARE X : INTEGER
-	OUTPUT "Enter Value"
-	INPUT X
-	Total <- Total + X
-NEXT Counter
+//Thing <- 5 + 2 = 3 AND 1 < 7
+//OUTPUT Thing
 
-DECLARE Average : REAL 
-Average <- Total / Number
-OUTPUT "The Average is: ", Average
-
-Thing <- 5 + 2 = 3 AND 1 < 7
-OUTPUT Thing
+DECLARE Thing : INTEGER
+INPUT Thing
+IF Thing = 65536 THEN
+	OUTPUT "65536 is the best number"
+ENDIF
