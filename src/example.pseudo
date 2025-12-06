@@ -22,4 +22,6 @@ DECLARE Thing : INTEGER
 INPUT Thing
 IF Thing = 65536 THEN
 	OUTPUT "65536 is the best number"
+ELSE
+	OUTPUT Thing, " is the worst number ever"
 ENDIF

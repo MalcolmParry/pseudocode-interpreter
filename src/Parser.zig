@@ -7,11 +7,11 @@ const Parser = @This();
 state: *State,
 lexer: *Lexer,
 
-pub fn parseCodeBlock(this: *@This(), end: Lexer.Token.Type) error{ Lexer, Parser, OutOfMemory }!CodeBlock.Handle {
+pub fn parseCodeBlock(this: *@This(), ends: []const Lexer.Token.Type) error{ Lexer, Parser, OutOfMemory }!CodeBlock.Handle {
     var statements: std.ArrayList(Statement.Handle) = .{};
     errdefer statements.deinit(this.state.alloc);
 
-    while ((try this.lexer.peekToken()).t != end) {
+    while (std.mem.indexOfScalar(Lexer.Token.Type, ends, (try this.lexer.peekToken()).t) == null) {
         const next = try this.parseStatement();
         try statements.append(this.state.alloc, next);
     }
@@ -94,7 +94,7 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
             try this.state.expectToken(.to, to);
 
             const expression = try this.parseExpression(0);
-            const block = try this.parseCodeBlock(.next);
+            const block = try this.parseCodeBlock(&.{.next});
             _ = this.lexer.nextToken() catch unreachable;
 
             const var_name = try this.lexer.nextToken();
@@ -118,13 +118,21 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
         .if_ => {
             const condition = try this.parseExpression(0);
             try this.state.expectToken(.then, try this.lexer.nextToken());
-            const block = try this.parseCodeBlock(.endif);
-            try this.state.expectToken(.endif, try this.lexer.nextToken());
+            const block = try this.parseCodeBlock(&.{ .endif, .else_ });
+            const else_block: ?CodeBlock.Handle = blk: {
+                if ((try this.lexer.nextToken()).t == .endif) break :blk null;
+
+                const result = try this.parseCodeBlock(&.{.endif});
+                _ = try this.lexer.nextToken();
+                break :blk result;
+            };
+
             return this.state.newStatement(.{
                 .data = .{
                     .if_ = .{
                         .condition = condition,
                         .block = block,
+                        .else_block = else_block,
                     },
                 },
             });
@@ -396,6 +404,7 @@ pub const Statement = struct {
     pub const If = struct {
         condition: Expression.Handle,
         block: CodeBlock.Handle,
+        else_block: ?CodeBlock.Handle,
     };
 
     pub const Formatter = struct {

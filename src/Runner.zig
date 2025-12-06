@@ -134,8 +134,11 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             const condition_value = try this.evalExpression(scope, if_.condition);
             try condition_value.assertType(this.state, .bool_);
 
-            if (condition_value.bool_)
+            if (condition_value.bool_) {
                 try this.runCodeBlock(if_.block, scope);
+            } else if (if_.else_block) |else_block| {
+                try this.runCodeBlock(else_block, scope);
+            }
         },
     }
 }

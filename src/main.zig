@@ -40,7 +40,7 @@ pub fn main() !void {
         .lexer = &lexer,
     };
 
-    const code_block = parser.parseCodeBlock(.eof) catch |err| if (err != error.Parser) return err else return;
+    const code_block = parser.parseCodeBlock(&.{.eof}) catch |err| if (err != error.Parser) return err else return;
     try state.err_writer.print("{f}", .{Parser.CodeBlock.Formatter{ .state = &state, .this = code_block }});
     try state.err_writer.flush();
 

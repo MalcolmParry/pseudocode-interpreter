@@ -108,6 +108,13 @@ pub const SourceSlice = struct {
 
         state.err_writer.print("{s}\n", .{state.src[line_start .. line_start + line_len]}) catch @panic("failed printing");
         for (0..this.start - line_start) |_| state.err_writer.print(" ", .{}) catch @panic("failed printing");
+        for (state.src[line_start..this.start]) |c| {
+            if (c == '\t') {
+                state.err_writer.print("\t", .{}) catch @panic("failed printing");
+            } else {
+                state.err_writer.print(" ", .{}) catch @panic("failed printing");
+            }
+        }
 
         tty.setColor(state.err_writer, .green) catch @panic("failed to set color");
         state.err_writer.print("^", .{}) catch @panic("failed printing");
