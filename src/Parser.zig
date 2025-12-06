@@ -422,10 +422,16 @@ pub const Statement = struct {
                     Expression.Formatter{ .state = this.state, .this = for_.limit },
                     CodeBlock.Formatter{ .state = this.state, .this = for_.block, .indent = 1 },
                 }),
-                .if_ => |if_| try writer.print("if {f}\n{f}", .{
-                    Expression.Formatter{ .state = this.state, .this = if_.condition },
-                    CodeBlock.Formatter{ .state = this.state, .this = if_.block, .indent = 1 },
-                }),
+                .if_ => |if_| {
+                    try writer.print("if {f}\n{f}", .{
+                        Expression.Formatter{ .state = this.state, .this = if_.condition },
+                        CodeBlock.Formatter{ .state = this.state, .this = if_.block, .indent = 1 },
+                    });
+
+                    if (if_.else_block) |else_block| try writer.print("else\n{f}", .{
+                        CodeBlock.Formatter{ .state = this.state, .this = else_block, .indent = 1 },
+                    });
+                },
             }
         }
     };
