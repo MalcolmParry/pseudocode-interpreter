@@ -13,6 +13,24 @@ expressions: std.ArrayList(Parser.Expression) = .{},
 statements: std.ArrayList(Parser.Statement) = .{},
 code_blocks: std.ArrayList(Parser.CodeBlock) = .{},
 
+pub fn deinit(this: *@This()) void {
+    for (this.code_blocks.items) |*code_block| {
+        code_block.statements.deinit(this.alloc);
+    }
+
+    for (this.statements.items) |*statement| {
+        switch (statement.data) {
+            .output => |*output| output.deinit(this.alloc),
+            else => {},
+        }
+    }
+
+    this.expressions.deinit(this.alloc);
+    this.statements.deinit(this.alloc);
+    this.code_blocks.deinit(this.alloc);
+    this.* = undefined;
+}
+
 pub fn logErr(this: *@This(), comptime fmt: []const u8, args: anytype) void {
     std.Io.tty.Config.setColor(.escape_codes, this.err_writer, .red) catch @panic("color setting failed");
     this.err_writer.print("error: " ++ fmt ++ "\n", args) catch @panic("printing failed");

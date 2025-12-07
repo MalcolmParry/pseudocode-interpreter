@@ -7,7 +7,10 @@ const Runner = @import("Runner.zig");
 const src: []const u8 = @embedFile("example.pseudo");
 
 pub fn main() !void {
-    const alloc = std.heap.smp_allocator;
+    var alloc_struct: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = alloc_struct.deinit();
+    const alloc = alloc_struct.allocator();
+
     var err_buffer: [64]u8 = undefined;
     const err_writer = std.debug.lockStderrWriter(&err_buffer);
     defer std.debug.unlockStderrWriter();
@@ -21,6 +24,7 @@ pub fn main() !void {
         .out_writer = err_writer,
         .in_reader = &in_reader.interface,
     };
+    defer state.deinit();
 
     var lexer: Lexer = .{ .state = &state };
 
@@ -53,6 +57,7 @@ pub fn main() !void {
         .variables = .empty,
         .parent = null,
     };
+    defer root_scope.deinit(&runner);
     try runner.addRuntimePrimatives(&root_scope);
 
     try state.err_writer.print("\n=== RUNNER ===\n", .{});

@@ -15,8 +15,9 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
         .variables = .empty,
         .parent = parent_scope,
     };
+    defer scope.deinit(this);
 
-    for (block.value(this.state).statements) |statement_handle| {
+    for (block.value(this.state).statements.items) |statement_handle| {
         try runStatement(this, &scope, statement_handle);
     }
 }
@@ -66,6 +67,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
         .output => |output| {
             for (output.items) |expression| {
                 const value = try this.evalExpression(scope, expression);
+                defer value.deinit(this.state);
                 try this.state.out_writer.print("{f}", .{value});
             }
             try this.state.out_writer.print("\n", .{});
@@ -114,6 +116,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                 .parent = scope,
                 .variables = .empty,
             };
+            defer new_scope.deinit(this);
 
             const ident = for_.assign.value(this.state).data.assign.ident_loc.getIdent(this.state);
             try runStatement(this, &new_scope, for_.assign);
@@ -132,6 +135,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
         },
         .if_ => |if_| {
             const condition_value = try this.evalExpression(scope, if_.condition);
+            defer condition_value.deinit(this.state);
             try condition_value.assertType(this.state, .bool_);
 
             if (condition_value.bool_) {
@@ -376,6 +380,15 @@ pub const Value = union(Type) {
 pub const Scope = struct {
     variables: std.StringHashMapUnmanaged(Value),
     parent: ?*Scope,
+
+    pub fn deinit(this: *@This(), runner: *Runner) void {
+        var iter = this.variables.valueIterator();
+        while (iter.next()) |variable| {
+            variable.deinit(runner.state);
+        }
+
+        this.variables.deinit(runner.state.alloc);
+    }
 
     pub fn getOrCreateVariable(this: *@This(), runner: *Runner, name: []const u8) error{OutOfMemory}!*Value {
         if (getVariable(this, name)) |variable| return variable;

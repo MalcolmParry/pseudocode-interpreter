@@ -17,7 +17,7 @@ pub fn parseCodeBlock(this: *@This(), ends: []const Lexer.Token.Type) error{ Lex
     }
 
     return this.state.newCodeBlock(.{
-        .statements = statements.items,
+        .statements = statements,
     });
 }
 
@@ -446,7 +446,7 @@ pub const Statement = struct {
 };
 
 pub const CodeBlock = struct {
-    statements: []const Statement.Handle,
+    statements: std.ArrayList(Statement.Handle),
 
     pub const Formatter = struct {
         state: *State,
@@ -454,7 +454,7 @@ pub const CodeBlock = struct {
         indent: u32 = 0,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            for (this.this.value(this.state).statements) |statement| {
+            for (this.this.value(this.state).statements.items) |statement| {
                 for (0..this.indent) |_| try writer.print("    ", .{});
 
                 try writer.print("{f}\n", .{Statement.Formatter{ .state = this.state, .this = statement }});
