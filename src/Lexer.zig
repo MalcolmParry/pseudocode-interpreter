@@ -174,6 +174,8 @@ pub fn parseIdentifier(this: *@This()) Token {
             if (std.mem.eql(u8, str, "THEN")) break :blk .then;
             if (std.mem.eql(u8, str, "ENDIF")) break :blk .endif;
             if (std.mem.eql(u8, str, "ELSE")) break :blk .else_;
+            if (std.mem.eql(u8, str, "REPEAT")) break :blk .repeat;
+            if (std.mem.eql(u8, str, "UNTIL")) break :blk .until;
 
             break :blk .ident;
         };
@@ -300,6 +302,8 @@ pub const Token = struct {
         then,
         endif,
         else_,
+        repeat,
+        until,
 
         pub fn isLiteral(t: Type) bool {
             return switch (t) {

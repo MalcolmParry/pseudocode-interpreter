@@ -115,6 +115,21 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
                 },
             });
         },
+        .repeat => {
+            const block = try this.parseCodeBlock(&.{.until});
+            try this.state.expectToken(.until, try this.lexer.nextToken());
+
+            const condition = try this.parseExpression(0);
+
+            return this.state.newStatement(.{
+                .data = .{
+                    .repeat_until = .{
+                        .block = block,
+                        .condition = condition,
+                    },
+                },
+            });
+        },
         .if_ => {
             const condition = try this.parseExpression(0);
             try this.state.expectToken(.then, try this.lexer.nextToken());
@@ -378,6 +393,7 @@ pub const Statement = struct {
         output: std.ArrayList(Expression.Handle),
         input: Input,
         for_: ForLoop,
+        repeat_until: RepeatUntil,
         if_: If,
     };
 
@@ -401,6 +417,11 @@ pub const Statement = struct {
         block: CodeBlock.Handle,
     };
 
+    pub const RepeatUntil = struct {
+        condition: Expression.Handle,
+        block: CodeBlock.Handle,
+    };
+
     pub const If = struct {
         condition: Expression.Handle,
         block: CodeBlock.Handle,
@@ -414,13 +435,17 @@ pub const Statement = struct {
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
             switch (this.this.value(this.state).data) {
                 .assign => |assign| try writer.print("set @'{s}' to ({f})", .{ assign.ident_loc.getIdent(this.state), Expression.Formatter{ .state = this.state, .this = assign.value } }),
-                .define => |define| try writer.print("define @'{s}' as @'{s}'", .{ define.ident_loc.getIdent(this.state), define.type_loc.getIdent(this.state) }),
+                .define => |define| try writer.print("declare @'{s}' as @'{s}'", .{ define.ident_loc.getIdent(this.state), define.type_loc.getIdent(this.state) }),
                 .output => |output| try writer.print("output {f}", .{Expression.ListFormatter{ .state = this.state, .this = output }}),
                 .input => |input| try writer.print("input to @'{s}'", .{input.ident_loc.getIdent(this.state)}),
                 .for_ => |for_| try writer.print("for {{{f}}} to {f}\n{f}", .{
                     Formatter{ .state = this.state, .this = for_.assign },
                     Expression.Formatter{ .state = this.state, .this = for_.limit },
                     CodeBlock.Formatter{ .state = this.state, .this = for_.block, .indent = 1 },
+                }),
+                .repeat_until => |repeat| try writer.print("repeat {f}\n{f}", .{
+                    Expression.Formatter{ .state = this.state, .this = repeat.condition },
+                    CodeBlock.Formatter{ .state = this.state, .this = repeat.block, .indent = 1 },
                 }),
                 .if_ => |if_| {
                     try writer.print("if {f}\n{f}", .{

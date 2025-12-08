@@ -54,6 +54,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             const ident = assign.ident_loc.getIdent(this.state);
             const variable = try scope.getOrCreateVariable(this, ident);
             const value = try this.evalExpression(scope, assign.value);
+            defer value.deinit(this.state);
 
             if (@as(Type, value) != variable.* and variable.* != .undef) {
                 this.state.logErr("expected type of '{t}' got '{t}'", .{ variable.*, value });
@@ -100,7 +101,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                     this.state.logErr("{t}", .{err});
                     return error.Runtime;
                 } },
-                .str => .{ .str = line },
+                .str => .{ .str = try this.state.alloc.dupe(u8, line) },
                 else => {
                     this.state.logErr("cant input to type '{t}'", .{variable.*});
                     return error.Runtime;
@@ -108,7 +109,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             };
 
             variable.deinit(this.state);
-            variable.* = try value.copy(this.state);
+            variable.* = value;
         },
         .for_ => |for_| {
             // TODO: allow for non int counters
@@ -131,6 +132,16 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
                 try runCodeBlock(this, for_.block, &new_scope);
 
                 variable.* = .{ .int = as_int + 1 };
+            }
+        },
+        .repeat_until => |repeat| {
+            while (true) {
+                try this.runCodeBlock(repeat.block, scope);
+                const condition_value = try this.evalExpression(scope, repeat.condition);
+                defer condition_value.deinit(this.state);
+                try condition_value.assertType(this.state, .bool_);
+
+                if (condition_value.bool_) break;
             }
         },
         .if_ => |if_| {
@@ -158,7 +169,7 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
             const ident = loc.getIdent(this.state);
 
             if (scope.getVariable(ident)) |val| {
-                return val.*;
+                return val.copy(this.state);
             } else {
                 this.state.logErr("variable '{s}' not defined", .{ident});
                 expression.src_slice.printWithUnderline(this.state);
@@ -175,6 +186,8 @@ pub fn evalExpression(this: *@This(), scope: *Scope, expression_handle: Parser.E
         .bin => |bin| {
             var left = try evalExpression(this, scope, bin.left);
             var right = try evalExpression(this, scope, bin.right);
+            defer left.deinit(this.state);
+            defer right.deinit(this.state);
 
             switch (bin.op) {
                 .add, .sub, .mul => {
@@ -250,6 +263,7 @@ pub fn addRuntimePrimatives(this: *@This(), scope: *Scope) !void {
     try scope.variables.put(this.state.alloc, "INTEGER", .{ .t = .int });
     try scope.variables.put(this.state.alloc, "REAL", .{ .t = .real });
     try scope.variables.put(this.state.alloc, "BOOLEAN", .{ .t = .bool_ });
+    try scope.variables.put(this.state.alloc, "STRING", .{ .t = .str });
 
     try scope.variables.put(this.state.alloc, "TRUE", .{ .bool_ = true });
     try scope.variables.put(this.state.alloc, "FALSE", .{ .bool_ = false });

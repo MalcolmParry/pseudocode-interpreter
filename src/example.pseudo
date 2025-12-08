@@ -18,10 +18,17 @@
 //Thing <- 5 + 2 = 3 AND 1 < 7
 //OUTPUT Thing
 
-DECLARE Thing : INTEGER
-INPUT Thing
-IF Thing = 65536 THEN
-	OUTPUT "65536 is the best number"
-ELSE
-	OUTPUT Thing, " is the worst number ever"
-ENDIF
+//DECLARE Thing : INTEGER
+//INPUT Thing
+//IF Thing = 65536 THEN
+//	OUTPUT "65536 is the best number"
+//ELSE
+//	OUTPUT Thing, " is the worst number ever"
+//ENDIF
+
+DECLARE Password : STRING 
+REPEAT
+	OUTPUT "Enter password:"
+	INPUT Password 
+UNTIL Password = "Secret"
+OUTPUT "correct"
