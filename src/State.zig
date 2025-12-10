@@ -15,12 +15,12 @@ code_blocks: std.ArrayList(Parser.CodeBlock) = .{},
 
 pub fn deinit(this: *@This()) void {
     for (this.code_blocks.items) |*code_block| {
-        code_block.statements.deinit(this.alloc);
+        this.alloc.free(code_block.statements);
     }
 
     for (this.statements.items) |*statement| {
         switch (statement.data) {
-            .output => |*output| output.deinit(this.alloc),
+            .output => |output| this.alloc.free(output),
             else => {},
         }
     }

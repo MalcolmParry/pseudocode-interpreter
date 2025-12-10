@@ -17,7 +17,7 @@ pub fn runCodeBlock(this: *@This(), block: Parser.CodeBlock.Handle, parent_scope
     };
     defer scope.deinit(this);
 
-    for (block.value(this.state).statements.items) |statement_handle| {
+    for (block.value(this.state).statements) |statement_handle| {
         try runStatement(this, &scope, statement_handle);
     }
 }
@@ -66,7 +66,7 @@ pub fn runStatement(this: *@This(), scope: *Scope, statement_handle: Parser.Stat
             variable.* = try value.copy(this.state);
         },
         .output => |output| {
-            for (output.items) |expression| {
+            for (output) |expression| {
                 const value = try this.evalExpression(scope, expression);
                 defer value.deinit(this.state);
                 try this.state.out_writer.print("{f}", .{value});

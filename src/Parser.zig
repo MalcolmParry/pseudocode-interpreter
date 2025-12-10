@@ -16,8 +16,9 @@ pub fn parseCodeBlock(this: *@This(), ends: []const Lexer.Token.Type) error{ Lex
         try statements.append(this.state.alloc, next);
     }
 
+    statements.shrinkAndFree(this.state.alloc, statements.items.len);
     return this.state.newCodeBlock(.{
-        .statements = statements,
+        .statements = statements.items,
     });
 }
 
@@ -156,13 +157,16 @@ pub fn parseStatement(this: *@This()) !Statement.Handle {
     }
 }
 
-pub fn parseExpressionList(this: *@This()) !std.ArrayList(Expression.Handle) {
+pub fn parseExpressionList(this: *@This()) ![]Expression.Handle {
     var result: std.ArrayList(Expression.Handle) = .empty;
 
     while (true) {
         try result.append(this.state.alloc, try this.parseExpression(0));
 
-        if ((try this.lexer.peekToken()).t != .comma) return result;
+        if ((try this.lexer.peekToken()).t != .comma) {
+            result.shrinkAndFree(this.state.alloc, result.items.len);
+            return result.items;
+        }
         _ = this.lexer.nextToken() catch unreachable;
     }
 }
@@ -365,10 +369,10 @@ pub const Expression = struct {
 
     pub const ListFormatter = struct {
         state: *State,
-        this: std.ArrayList(Handle),
+        this: []Handle,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            for (this.this.items, 0..) |expression, i| {
+            for (this.this, 0..) |expression, i| {
                 if (i != 0) try writer.print(", ", .{});
                 try writer.print("{f}", .{Formatter{ .state = this.state, .this = expression }});
             }
@@ -390,7 +394,7 @@ pub const Statement = struct {
     pub const Data = union(enum) {
         assign: Assign,
         define: Define,
-        output: std.ArrayList(Expression.Handle),
+        output: []Expression.Handle,
         input: Input,
         for_: ForLoop,
         repeat_until: RepeatUntil,
@@ -471,7 +475,7 @@ pub const Statement = struct {
 };
 
 pub const CodeBlock = struct {
-    statements: std.ArrayList(Statement.Handle),
+    statements: []Statement.Handle,
 
     pub const Formatter = struct {
         state: *State,
@@ -479,7 +483,7 @@ pub const CodeBlock = struct {
         indent: u32 = 0,
 
         pub fn format(this: @This(), writer: *std.Io.Writer) !void {
-            for (this.this.value(this.state).statements.items) |statement| {
+            for (this.this.value(this.state).statements) |statement| {
                 for (0..this.indent) |_| try writer.print("    ", .{});
 
                 try writer.print("{f}\n", .{Statement.Formatter{ .state = this.state, .this = statement }});
